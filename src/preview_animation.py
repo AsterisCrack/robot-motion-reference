@@ -20,7 +20,7 @@ import yaml
 from isaaclab.app import AppLauncher
 
 _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-_DEFAULT_CONFIG = os.path.join(_SCRIPT_DIR, "config.yaml")
+_DEFAULT_CONFIG = os.path.join(_SCRIPT_DIR, "..", "config.yaml")
 
 
 def _load_config(path: str) -> dict[str, Any]:

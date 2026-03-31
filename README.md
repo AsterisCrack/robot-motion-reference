@@ -77,7 +77,7 @@ sudo apt install python3-tk
 > **Do this first** if you are unfamiliar with the FBX skeleton hierarchy. Blender lets you visually identify which bone corresponds to which body part before you write the joint map.
 
 ```bash
-blender --python blender_preview_fbx.py -- --fbx path/to/animation.fbx
+blender --python src/blender_preview_fbx.py -- --fbx path/to/animation.fbx
 ```
 
 Opens the FBX in Blender, plays the animation, and overlays every joint name in the 3D viewport.
@@ -89,7 +89,7 @@ Optional flags: `--scale 0.01`, `--fps 30`
 ### Step 1 — Get the joint list from the FBX
 
 ```bash
-python inspect_fbx_skeleton.py --fbx path/to/animation.fbx --headless
+python src/inspect_fbx_skeleton.py --fbx path/to/animation.fbx --headless
 ```
 
 Prints all skeleton joint names and the animation time range. Copy the joint names you need into your map in step 2.
@@ -107,7 +107,7 @@ Prints all skeleton joint names and the animation time range. Copy the joint nam
 ### Step 2 — Generate a joint mapping template
 
 ```bash
-python make_joint_map_template.py \
+python src/make_joint_map_template.py \
     --urdf path/to/Robot.urdf \
     --out  processed/my_robot_map.json
 ```
@@ -146,7 +146,7 @@ A complete example (Mixamo → 12-DOF biped) is in `processed/joint_map_template
 ### Step 3 — Extract joint trajectories
 
 ```bash
-python fbx_to_joint_data.py \
+python src/fbx_to_joint_data.py \
     --fbx       path/to/animation.fbx \
     --joint-map processed/my_robot_map.json \
     --out       processed/animation.npz \
@@ -156,7 +156,7 @@ python fbx_to_joint_data.py \
 Using a pre-converted USD instead of FBX:
 
 ```bash
-python fbx_to_joint_data.py \
+python src/fbx_to_joint_data.py \
     --usd       path/to/animation.usd \
     --joint-map processed/my_robot_map.json \
     --out       processed/animation.npz \
@@ -198,7 +198,7 @@ cp config.example.yaml config.yaml
 Then run the preview, passing the same joint map used for extraction:
 
 ```bash
-python preview_animation.py \
+python src/preview_animation.py \
     --npz       processed/animation.npz \
     --joint-map processed/my_robot_map.json \
     --play --loop
@@ -241,19 +241,19 @@ flowchart LR
 ## Repository Layout
 
 ```
-animation-utils/
-├── inspect_fbx_skeleton.py      # Step 1: inspect FBX/USD skeleton
-├── make_joint_map_template.py   # Step 2: generate joint mapping template
-├── fbx_to_joint_data.py         # Step 3: extract joint trajectories
-├── preview_animation.py         # Step 4: preview in Isaac Lab + tune
-├── blender_preview_fbx.py       # Step 0 (optional): inspect skeleton in Blender
-├── config.example.yaml          # Copy to config.yaml and fill in robot_usd
+robot-motion-reference/
+├── src/
+│   ├── inspect_fbx_skeleton.py      # Step 1: inspect FBX/USD skeleton
+│   ├── make_joint_map_template.py   # Step 2: generate joint mapping template
+│   ├── fbx_to_joint_data.py         # Step 3: extract joint trajectories
+│   ├── preview_animation.py         # Step 4: preview in Isaac Lab + tune
+│   └── blender_preview_fbx.py       # Step 0 (optional): inspect skeleton in Blender
+├── processed/
+│   ├── joint_map_template.json      # Example: Mixamo → 12-DOF biped mapping
+│   └── StandardWalk.npz             # Example: processed walking animation
+├── config.example.yaml              # Copy to config.yaml and fill in robot_usd
 ├── requirements.txt
-├── LICENSE
-├── fbx/                         # Place source FBX files here (gitignored)
-└── processed/
-    ├── joint_map_template.json  # Example: Mixamo → 12-DOF biped mapping
-    └── StandardWalk.npz         # Example: processed walking animation
+└── LICENSE
 ```
 
 ---
