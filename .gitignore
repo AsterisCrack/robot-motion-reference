@@ -1,0 +1,34 @@
+# Local config (copy config.example.yaml → config.yaml and fill in your paths)
+config.yaml
+*.npz
+*.fbx
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+*.egg-info/
+dist/
+build/
+
+# Isaac Lab / USD generated files
+fbx/config.yaml
+fbx/*.usd
+*.usd
+
+# Large binary animation sources — add your FBX files here but keep processed/ outputs
+fbx/*.fbx
+
+# Processed outputs (optional: remove these lines if you want to commit example data)
+# processed/*.npz
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp

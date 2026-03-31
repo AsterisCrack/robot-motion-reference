@@ -1,0 +1,45 @@
+# ============================================================
+# Dependency map (per script)
+# ============================================================
+# make_joint_map_template.py  →  stdlib only (no external deps)
+# inspect_fbx_skeleton.py     →  Isaac Lab, pxr
+# fbx_to_joint_data.py        →  Isaac Lab, pxr, numpy
+# preview_animation.py        →  Isaac Lab, numpy, torch, pyyaml, tkinter
+# blender_preview_fbx.py      →  Blender-internal only (see note below)
+# ============================================================
+
+# --- 1. Isaac Lab (mandatory for all scripts except make_joint_map_template.py) ---
+#
+# Isaac Lab bundles: numpy, torch, pxr (Pixar USD), and most other heavy deps.
+# Install it first via the official guide before running pip install below:
+#   https://isaac-sim.github.io/IsaacLab/main/source/setup/installation/index.html
+#
+# After installing, activate Isaac Lab's Python environment:
+#   source /path/to/isaaclab/.venv/bin/activate
+
+# --- 2. pip-installable extras (install into the Isaac Lab venv) ---
+
+pyyaml>=6.0     # preview_animation.py — config file loading
+                # (likely already present in the Isaac Lab venv, but listed explicitly)
+
+# --- 3. tkinter (system package — NOT pip-installable) ---
+#
+# preview_animation.py uses tkinter for the interactive tuning panel.
+# tkinter is part of the Python standard library but requires a system package
+# on most Linux distributions:
+#
+#   Ubuntu / Debian:  sudo apt install python3-tk
+#   Arch Linux:       sudo pacman -S tk
+#   macOS:            included with the official python.org installer
+#   Windows:          included with the official python.org installer
+#
+# If Isaac Lab ships its own CPython build without tkinter, you may need to
+# rebuild Python with --enable-framework (macOS) or install python3-tk and
+# point Isaac Lab's venv at the system tk libraries.
+
+# --- 4. Blender scripts (blender_preview_fbx.py) ---
+#
+# Requires Blender 3.6+: https://www.blender.org/download/
+# Uses Blender's own bundled Python (bpy, blf, gpu, bpy_extras).
+# Do NOT install bpy via pip for this script — run it as:
+#   blender --python blender_preview_fbx.py -- --fbx path/to/file.fbx

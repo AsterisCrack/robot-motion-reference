@@ -1,0 +1,5 @@
+# animation-utils local configuration
+# Copy this file to config.yaml and fill in your paths.
+
+# Path to the robot USD file used by preview_animation.py
+robot_usd: /path/to/your/robot.usd
