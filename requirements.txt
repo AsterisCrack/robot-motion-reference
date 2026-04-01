@@ -19,10 +19,10 @@
 
 # --- 2. pip-installable extras (install into the Isaac Lab venv) ---
 
-pyyaml>=6.0     # preview_animation.py — config file loading
+pyyaml>=6.0     # preview_animation.py - config file loading
                 # (likely already present in the Isaac Lab venv, but listed explicitly)
 
-# --- 3. tkinter (system package — NOT pip-installable) ---
+# --- 3. tkinter (system package - NOT pip-installable) ---
 #
 # preview_animation.py uses tkinter for the interactive tuning panel.
 # tkinter is part of the Python standard library but requires a system package
@@ -41,5 +41,5 @@ pyyaml>=6.0     # preview_animation.py — config file loading
 #
 # Requires Blender 3.6+: https://www.blender.org/download/
 # Uses Blender's own bundled Python (bpy, blf, gpu, bpy_extras).
-# Do NOT install bpy via pip for this script — run it as:
+# Do NOT install bpy via pip for this script - run it as:
 #   blender --python blender_preview_fbx.py -- --fbx path/to/file.fbx

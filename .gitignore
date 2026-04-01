@@ -18,7 +18,7 @@ fbx/config.yaml
 fbx/*.usd
 *.usd
 
-# Large binary animation sources — add your FBX files here but keep processed/ outputs
+# Large binary animation sources - add your FBX files here but keep processed/ outputs
 fbx/*.fbx
 
 # Processed outputs (optional: remove these lines if you want to commit example data)

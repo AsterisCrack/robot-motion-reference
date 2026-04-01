@@ -1,6 +1,6 @@
 # FBX Motion References for Robotics
 
-A toolkit for extracting motion capture animations from FBX files and retargeting them to robot joint trajectories — ready to use as motion references for reinforcement learning.
+A toolkit for extracting motion capture animations from FBX files and retargeting them to robot joint trajectories - ready to use as motion references for reinforcement learning.
 
 Built around the [Mixamo](https://www.mixamo.com) → [Isaac Lab](https://isaac-sim.github.io/IsaacLab/) pipeline, but designed to work with any FBX skeleton and any robot URDF.
 
@@ -66,13 +66,13 @@ sudo apt install python3-tk
 
 ### Blender (optional, step 0 only)
 
-[Blender 3.6+](https://www.blender.org/download/) — uses its own bundled Python; no `pip install` needed.
+[Blender 3.6+](https://www.blender.org/download/) - uses its own bundled Python; no `pip install` needed.
 
 ---
 
 ## Quickstart
 
-### [Optional] Step 0 — Inspect the skeleton in Blender
+### [Optional] Step 0 - Inspect the skeleton in Blender
 
 > **Do this first** if you are unfamiliar with the FBX skeleton hierarchy. Blender lets you visually identify which bone corresponds to which body part before you write the joint map.
 
@@ -86,7 +86,7 @@ Optional flags: `--scale 0.01`, `--fps 30`
 
 ---
 
-### Step 1 — Get the joint list from the FBX
+### Step 1 - Get the joint list from the FBX
 
 ```bash
 python src/inspect_fbx_skeleton.py --fbx path/to/animation.fbx --headless
@@ -104,7 +104,7 @@ Prints all skeleton joint names and the animation time range. Copy the joint nam
 
 ---
 
-### Step 2 — Generate a joint mapping template
+### Step 2 - Generate a joint mapping template
 
 ```bash
 python src/make_joint_map_template.py \
@@ -132,10 +132,10 @@ Produces a JSON file with one entry per revolute joint in your URDF. Edit it man
 |---|---|
 | `robot_joint` | Joint name as it appears in the URDF |
 | `fbx_joint` | Slash-separated path to the FBX bone (from step 1) |
-| `euler_component` | `"x"`, `"y"`, or `"z"` — which Euler angle component to extract (recommended) |
+| `euler_component` | `"x"`, `"y"`, or `"z"` - which Euler angle component to extract (recommended) |
 | `euler_order` | Rotation order; only `"XYZ"` supported |
-| `axis` | Rotation axis vector — used as fallback when `euler_component` is omitted |
-| `sign` | `1.0` or `-1.0` — flip joint direction if needed |
+| `axis` | Rotation axis vector - used as fallback when `euler_component` is omitted |
+| `sign` | `1.0` or `-1.0` - flip joint direction if needed |
 | `offset_deg` | Constant offset in degrees added after extraction |
 | `scale` | Multiplicative scale applied to the extracted angle |
 
@@ -143,7 +143,7 @@ A complete example (Mixamo → 12-DOF biped) is in `processed/joint_map_template
 
 ---
 
-### Step 3 — Extract joint trajectories
+### Step 3 - Extract joint trajectories
 
 ```bash
 python src/fbx_to_joint_data.py \
@@ -186,7 +186,7 @@ data["source_fbx"]   # str            FBX source (if converted)
 
 ---
 
-### Step 4 — Preview and tune interactively
+### Step 4 - Preview and tune interactively
 
 Set your robot USD path once in `config.yaml`:
 
@@ -206,10 +206,10 @@ python src/preview_animation.py \
 
 The interactive panel loads the current `offset_deg` and `sign` values from the map and lets you tune them live:
 
-- **FPS slider** — change playback speed
-- **Per-joint offset sliders** (±180°) — shift a joint angle up or down
-- **Flip checkboxes** — invert a joint's direction
-- **Save to map** button — writes the current slider values back to `my_robot_map.json`
+- **FPS slider** - change playback speed
+- **Per-joint offset sliders** (±180°) - shift a joint angle up or down
+- **Flip checkboxes** - invert a joint's direction
+- **Save to map** button - writes the current slider values back to `my_robot_map.json`
 
 After saving, re-run step 3 to regenerate the `.npz` with the updated offsets. Repeat until the animation looks correct.
 
@@ -260,9 +260,9 @@ robot-motion-reference/
 
 ## Tips
 
-- **Start with Blender** (step 0) to see all bone names before writing the joint map — much faster than trial and error.
+- **Start with Blender** (step 0) to see all bone names before writing the joint map - much faster than trial and error.
 - **Use `euler_component`** rather than axis-projection for Mixamo skeletons; it is more reliable.
-- **`config.yaml` is gitignored** — each user keeps their own local copy with their own paths.
+- **`config.yaml` is gitignored** - each user keeps their own local copy with their own paths.
 - **FBX conversion requires a GPU.** If you are on a headless machine, pass `--headless` and make sure an NVIDIA GPU is available. If conversion still fails, export the USD manually from the Isaac Sim GUI (see step 1).
 
 ---
