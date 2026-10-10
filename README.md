@@ -4,6 +4,12 @@ A toolkit for extracting motion capture animations from FBX files and retargetin
 
 Built around the [Mixamo](https://www.mixamo.com) → [Isaac Lab](https://isaac-sim.github.io/IsaacLab/) pipeline, but designed to work with any FBX skeleton and any robot URDF.
 
+> **New: [Gait Studio](gait_studio/README.md).** A procedural gait generator with a live browser UI.
+> Tune a walking style, check it against the servos, and bake a command-conditioned gait table
+> (any vx, vy, yaw rate) for imitation training. No Isaac Lab needed:
+> `python -m gait_studio.app`. The FBX pipeline below is still useful for style reference clips
+> (shown as a ghost in the Studio) and for non-walking motions.
+
 ---
 
 ## Pipeline Overview

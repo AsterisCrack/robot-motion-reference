@@ -1,0 +1,9 @@
+# Gait Studio (no Isaac Lab needed; runs on a laptop)
+#   python3 -m venv ~/.venvs/gait_studio && ~/.venvs/gait_studio/bin/pip install -r gait_studio/requirements.txt
+# On Python 3.9 (macOS system python) pin mujoco<3.3: newer releases ship no 3.9 wheels.
+mujoco>=3.1
+viser>=1.0
+numpy
+scipy
+pyyaml
+pytest
