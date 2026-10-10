@@ -1,9 +1,11 @@
-"""Open-loop physics preview: the free-floating robot tracks the reference joint angles with the
-same PD + torque clamp as the training sim. No balance feedback, so it will drift and often fall;
-the point is to see whether a gait is roughly dynamically plausible before spending a training run.
+"""Open-loop physics preview: the free-floating robot tracks the reference joint angles through the
+same BAM servo model as the training sim (gait_studio/actuator.py). No balance feedback, so it will
+drift and often fall; the point is to see whether a gait is roughly dynamically plausible before
+spending a training run.
 """
 from __future__ import annotations
 
+import copy
 import math
 
 import mujoco
@@ -15,9 +17,14 @@ from .robot import RobotModel
 class PhysicsPreview:
     def __init__(self, robot: RobotModel):
         self.r = robot
+        self.act = copy.copy(robot.actuator)   # the servo is stateful; don't share it
         self.m = mujoco.MjModel.from_xml_string(robot.xml)
-        if robot.armature is not None:
-            self.m.dof_armature[robot.dof_adr] = float(robot.armature)
+        self.m.dof_armature[robot.dof_adr] = float(robot.armature)
+        # The BAM servo supplies all joint friction, and its back-EMF braking can exceed the
+        # MJCF's +-stall ctrlrange. Drop the MJCF's own friction and torque clamp.
+        self.m.dof_frictionloss[robot.dof_adr] = 0.0
+        self.m.dof_damping[robot.dof_adr] = 0.0
+        self.m.actuator_ctrllimited[:] = 0
         self.d = mujoco.MjData(self.m)
         # actuator index per table joint (actuators are named after their joints)
         self.act_idx = np.array([mujoco.mj_name2id(self.m, mujoco.mjtObj.mjOBJ_ACTUATOR, n)
@@ -38,15 +45,18 @@ class PhysicsPreview:
         mujoco.mj_forward(self.m, self.d)
         self.fallen = False
         self.time = 0.0
+        self.act.reset()
 
     def _torque(self, target: np.ndarray) -> np.ndarray:
-        r = self.r
-        q = self.d.qpos[r.qpos_adr]
-        qd = self.d.qvel[r.dof_adr]
-        tau = r.kp * (target - q) - r.kd * qd
-        # DCMotor-style envelope: stall * (1 - w / w_max), then the continuous clamp.
-        env = r.stall_torque * np.clip(1.0 - np.sign(tau) * qd / r.velocity_limit, 0.0, 1.0)
-        return np.clip(tau, -np.minimum(env, r.effort_limit), np.minimum(env, r.effort_limit))
+        r, d, m = self.r, self.d, self.m
+        q = d.qpos[r.qpos_adr]
+        qd = d.qvel[r.dof_adr]
+        tau_motor = self.act.motor(target, q, qd, self.sim_dt)
+        # Load on the joint from everything but the servo (gravity, contact, coupling); one step
+        # old, as it comes from the previous forward pass.
+        ext = (d.qfrc_constraint + d.qfrc_passive - d.qfrc_bias)[r.dof_adr]
+        inertia = d.qM[m.dof_Madr[r.dof_adr]]
+        return tau_motor + self.act.stop_clip(tau_motor, ext, qd, inertia, self.sim_dt)
 
     def step(self, target: np.ndarray, duration: float):
         n = max(1, int(round(duration / self.sim_dt)))

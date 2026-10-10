@@ -41,16 +41,16 @@ joint_limits_deg:
   - [-35, 50]
   - [-35, 50]
 
-# Feetech STS3215 @ 12 V, as modelled in biped_robot.py (DCMotorCfg).
+# Feetech STS3215 as trained against: BAM fit (actuator/bam_kernel.py), mirrored in gait_studio/actuator.py.
+# Keep these in sync with config/config.yaml (env.actuator). Stall, no-load speed, back-EMF slope and
+# friction all come from the params file; nothing is hard-coded here.
 actuator:
-  effort_limit: 0.98      # N-m, rated continuous (the old sim's drive clamp) -> warning level
-  stall_torque: 2.94      # N-m @ 12 V; torque-speed envelope is stall * (1 - |w| / velocity_limit)
-  velocity_limit: 4.71    # rad/s, no-load
-  # Reflected rotor inertia used for the torque estimate. null = take it from the MJCF (0.04).
-  # BAM's identified STS3215 (7.4 V) value is ~0.022-0.026.
+  params_file: ../../../actuator/params/sts3215_12v/m6.json   # relative to this file
+  kp_fw: 32                 # firmware P register
+  stall_torque_cap_nm: 2.94 # datasheet stall at 12 V, applied by raising R (no-load speed unchanged)
+  vin: 12.0                 # nominal supply [V]; training samples 11.1-12.6. 12 V is where the cap is defined
+  # Reflected rotor inertia for the torque estimate. null = take it from the params file (0.0234).
   armature: null
-  kp: 20.0
-  kd: 2.0
 
 # Sole rectangle in the foot body frame, metres. Measured from the foot mesh at the zero pose
 # (gait_studio.robot prints the measured values; override here if the mesh changes).
@@ -59,17 +59,18 @@ sole:
   auto: true
 
 # Command space covered by the gait table (bake grid) and used to place the style anchors.
-# NOT the old training ranges (vx up to 0.5): with STS3215 speed/torque limits and 0.04 armature
-# the analyzer finds clean references only up to roughly |vx| 0.1, |vy| 0.08, |wz| 0.4; this
+# NOT the old training ranges (vx up to 0.5): with the STS3215 speed/torque limits the analyzer
+# found clean references only up to roughly |vx| 0.1, |vy| 0.08, |wz| 0.4 (measured with the
+# pre-BAM 0.04 armature / 4.71 rad/s model; re-check against the BAM model); this
 # grid stretches a bit past that and the bake report flags the cells that exceed the servo.
 # Keep the training command ranges equal to this (config/config_gait_reference.yaml does).
 command_ranges:
-  vx: [-0.2, 0.3]
+  vx: [-0.2, 0.2]
   vy: [-0.15, 0.15]
   wz: [-1.2, 1.2]
 
 # Bake grid resolution (points per axis, ends included).
-grid: {vx: 11, vy: 7, wz: 13}
+grid: {vx: 9, vy: 7, wz: 13}
 
 # |v_xy| and |wz| below this -> standing pose, clock holds. Same as the training config's
 # env_config.reference.stand_threshold.

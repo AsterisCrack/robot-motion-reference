@@ -47,8 +47,8 @@ cd BipedRobot/robot_motion_reference
   - CoM (green) and ZMP (red)
   - the support polygon
 - **Physics preview** (orange robot) runs MuJoCo with the free-floating robot tracking the reference
-  joints. It uses the training PD (kp 20, kd 2) and the servo torque-speed envelope, with no balance
-  feedback. A gait that holds up open-loop for a few steps is a gait the policy can learn easily.
+  joints. It drives each joint through the training BAM servo model (`actuator.py`: firmware P, back-EMF,
+  load-dependent friction), with no balance feedback. A gait that holds up open-loop for a few steps is a gait the policy can learn easily.
 - **Clip ghost** (purple) plays an NPZ from `src/fbx_to_joint_data.py`, such as the game walk, next
   to the robot for style comparison. *Clip speed* compresses its timing: about 1.9× is Froude-correct
   going from a human to this robot.
@@ -93,9 +93,9 @@ Each check is graded 🟢 / 🟡 / 🔴 for the current command:
 | Check | Notes |
 |---|---|
 | Joint limit margin | Against the *training* action limits |
-| Peak joint speed | Against 4.71 rad/s no-load |
-| Peak torque | Estimated by inverse dynamics, including the 0.04 armature |
-| Torque-speed usage | \|τ\| / (stall·(1−\|ω\|/ω_max)) |
+| Peak joint speed | Against the lower of the BAM no-load speed (0.97·V/kt, 5.15 rad/s at 12 V) and the firmware slew limit (4.92 rad/s); warns at 2/3 |
+| Peak torque | Inverse dynamics (with the BAM armature, 0.0234) plus the BAM friction the servo must overcome; warns at 70% of stall, fails at stall (2.94 N·m) |
+| Torque-speed usage | \|τ_motor\| / (stall − sign(τ)·(kt²/R)·ω): back-EMF costs torque when driving and returns it when braking |
 | ZMP margin | |
 | Foot gap | |
 | IK error | |
@@ -160,10 +160,14 @@ Nothing from the table is needed on the robot. The runtime only needs the same c
 
 ## What the analyzer says about this robot
 
-With STS3215 limits and the sim's armature of 0.04 kg·m², the swing leg is the bottleneck:
+With the BAM STS3215 model (stall capped at 2.94 N·m, armature 0.0234 kg·m²), the swing leg is the bottleneck:
 - The shank is short, so a 1 cm foot lift already takes about 20° of extra knee bend.
 - The average swing-foot speed is 2·v/(1−double_support) whatever the period.
-- Reflected rotor inertia makes every rad/s² cost about 0.04 N·m.
+- Reflected rotor inertia makes every rad/s² cost about 0.023 N·m, and BAM friction adds roughly 0.15 N·m
+  plus a load-dependent share on top of every moving joint.
+
+The numbers in this section were measured with the older 0.04 armature / 4.71 rad/s model; re-bake to
+see where the BAM model puts the limits.
 
 Clean references exist up to roughly |vx| 0.06–0.1 m/s, |vy| 0.05 m/s and |wz| 1.0 rad/s. The default
 grid stretches a bit past that and the bake report flags those cells. Things that help:
@@ -172,9 +176,10 @@ grid stretches a bit past that and the bake report flags those cells. Things tha
 - lower swing ease (lower peak speed)
 - a smaller armature
 
-BAM identifies the STS3215 (7.4 V) at about 0.024 kg·m². Set `actuator.armature` in
-`configs/robot_v2.yaml` to whatever your new BAM-based sim uses, so the checks match your training
-physics.
+The servo comes from `actuator:` in `configs/robot_v2.yaml`, which points at the same BAM params file
+the training env uses (`actuator/params/sts3215_12v/m6.json`, `kp_fw`, `stall_torque_cap_nm`). Keep it
+in sync with `config/config.yaml` (`env.actuator`); `actuator.vin` is the nominal supply (training
+samples 11.1–12.6 V, so margins near the limit are tighter at the low end).
 
 ## Files
 
@@ -187,6 +192,7 @@ physics.
 | `ik.py` | Floating-base damped least-squares IK with an active set on joint limits |
 | `gait.py` | `GaitGenerator.cycle()` / `.stand()` and the table frame layout |
 | `analysis.py` | Feasibility checks, including inverse-dynamics torques with ZMP-split contact wrenches |
+| `actuator.py` | Numpy port of the training BAM servo (`actuator/bam_kernel.py`): torque-speed envelope, friction budget, firmware loop |
 | `physics.py` | Open-loop MuJoCo preview |
 | `bake.py` | Grid bake, symmetrization, report |
 | `app.py` | The viser web UI |

@@ -77,8 +77,7 @@ class Analyzer:
         # in this estimate.
         self.m = mujoco.MjModel.from_xml_string(robot.xml)
         self.m.opt.disableflags |= int(mujoco.mjtDisableBit.mjDSBL_CONSTRAINT)
-        if robot.armature is not None:
-            self.m.dof_armature[robot.dof_adr] = float(robot.armature)
+        self.m.dof_armature[robot.dof_adr] = float(robot.armature)
         self.d = mujoco.MjData(self.m)
         self._jacp = np.zeros((3, self.m.nv))
         self._jacr = np.zeros((3, self.m.nv))
@@ -136,20 +135,23 @@ class Analyzer:
 
         vmax = np.abs(jv).max(axis=0)
         worst = int(np.argmax(vmax))
-        # DCMotor envelope: full torque up to 2/3 of no-load speed, zero at no-load.
+        # The servo cannot outrun its back-EMF (no-load speed) nor its firmware slew limit on the target.
+        act = r.actuator
+        v_fail = min(act.no_load_speed, act.slew_limit)
         checks.append(Check("peak joint speed", float(vmax[worst]), "rad/s",
-                            _grade(float(vmax[worst]), r.velocity_limit * 2 / 3, r.velocity_limit),
+                            _grade(float(vmax[worst]), v_fail * 2 / 3, v_fail),
                             r.joint_names[worst]))
 
-        tau = self.torques(cyc)
+        # Motor torque = joint torque + friction the servo must overcome (BAM friction budget).
+        tau = act.required_motor_torque(self.torques(cyc), jv)
         tmax = np.abs(tau).max(axis=0)
         worst = int(np.argmax(tmax))
         checks.append(Check("peak joint torque", float(tmax[worst]), "N-m",
-                            _grade(float(tmax[worst]), r.effort_limit, r.stall_torque),
+                            _grade(float(tmax[worst]), 0.7 * act.stall_torque, act.stall_torque),
                             r.joint_names[worst]))
-        # Torque-speed envelope: back-EMF leaves stall * (1 - |w|/w_max) at speed w.
-        avail = r.stall_torque * np.clip(1.0 - np.abs(jv) / r.velocity_limit, 0.0, 1.0)
-        usage = np.minimum(np.abs(tau) / np.maximum(avail, 1e-6), 9.99)  # capped: past no-load speed
+        # Torque-speed envelope: back-EMF takes kt^2/R per rad/s when driving and gives it back when braking.
+        avail = act.torque_limit(tau, jv)
+        usage = np.minimum(np.abs(tau) / np.maximum(avail, 1e-6), 9.99)  # capped: past the envelope
         u = float(usage.max())
         worst = int(np.unravel_index(np.argmax(usage), usage.shape)[1])
         checks.append(Check("torque-speed usage", 100.0 * u, "%", _grade(100.0 * u, 70.0, 100.0),

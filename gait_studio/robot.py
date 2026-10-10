@@ -9,6 +9,8 @@ import mujoco
 import numpy as np
 import yaml
 
+from .actuator import BamActuator
+
 _HERE = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_ROBOT_CONFIG = os.path.join(_HERE, "configs", "robot_v2.yaml")
 
@@ -54,12 +56,8 @@ class RobotModel:
         lim = np.radians(np.array(self.cfg["joint_limits_deg"], dtype=float))
         self.lower, self.upper = lim[:, 0], lim[:, 1]
 
-        act = self.cfg["actuator"]
-        self.effort_limit = float(act["effort_limit"])
-        self.stall_torque = float(act.get("stall_torque", 3.0 * self.effort_limit))
-        self.velocity_limit = float(act["velocity_limit"])
-        self.armature = act.get("armature")
-        self.kp, self.kd = float(act["kp"]), float(act["kd"])
+        self.actuator = BamActuator.from_config(self.cfg["actuator"], cfg_dir)
+        self.armature = self.actuator.armature
         self.command_ranges = {k: tuple(v) for k, v in self.cfg["command_ranges"].items()}
         self.control_dt = float(self.cfg["control_dt"])
         self.stand_threshold = float(self.cfg.get("stand_threshold", 0.05))

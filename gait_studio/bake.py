@@ -13,6 +13,17 @@ import multiprocessing as mp
 import os
 import time
 
+# Each worker process solves many tiny (<20x20) linear systems in ik.py's IK loop. OpenBLAS's
+# multithreading overhead per call dwarfs the work for matrices this small, and it's far worse
+# on Windows than macOS/Linux -- combined with one BLAS thread pool per pool worker, a many-core
+# Windows box ends up thread-thrashing instead of going faster. Pin to 1 thread per process
+# before numpy is imported anywhere (here or in the worker's re-import under spawn) and let the
+# process pool provide the parallelism instead.
+os.environ.setdefault("OMP_NUM_THREADS", "1")
+os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
+os.environ.setdefault("MKL_NUM_THREADS", "1")
+os.environ.setdefault("NUMEXPR_NUM_THREADS", "1")
+
 import numpy as np
 import yaml
 

@@ -248,9 +248,9 @@ class Studio:
             for h in (self.gui_steps, self.gui_trails):
                 h.on_update(lambda _: self._draw_static_overlays())
             gui.add_divider()
-            self.gui_physics = gui.add_checkbox("Physics preview (open-loop PD)", False,
-                                                hint="Orange robot: MuJoCo sim tracking the reference joints with the "
-                                                     "training PD and torque limits, no balance feedback.")
+            self.gui_physics = gui.add_checkbox("Physics preview (open-loop BAM servo)", False,
+                                                hint="Orange robot: MuJoCo sim tracking the reference joints through the "
+                                                     "training BAM servo model, no balance feedback.")
             self.gui_physics.on_update(lambda e: self._toggle_physics())
             gui.add_button("Reset physics").on_click(lambda _: self._reset_physics())
             gui.add_divider()
@@ -305,13 +305,13 @@ class Studio:
                                             title="Joint angle", **common)
             self.plot_speed = gui.add_uplot((x, z, z), (uplot.Series(label="phase"),
                                             uplot.Series(label="|speed| rad/s", stroke="#7c3aed", width=2),
-                                            uplot.Series(label="no-load", stroke="#ef4444", dash=(4, 4))),
+                                            uplot.Series(label="servo limit", stroke="#ef4444", dash=(4, 4))),
                                             title="Joint speed", **common)
             self.plot_usage = gui.add_uplot((x, z, z, z), (uplot.Series(label="phase"),
                                             uplot.Series(label="this joint %", stroke="#ea580c", width=2),
                                             uplot.Series(label="worst joint %", stroke="#a3a3a3", width=1),
                                             uplot.Series(label="100%", stroke="#ef4444", dash=(4, 4))),
-                                            title="Torque vs servo torque-speed envelope", **common)
+                                            title="Motor torque vs BAM torque-speed envelope", **common)
             self.plot_feet = gui.add_uplot((x, z, z, z), (uplot.Series(label="phase"),
                                            uplot.Series(label="left sole mm", stroke="#3b82f6", width=2),
                                            uplot.Series(label="right sole mm", stroke="#f97316", width=2),
@@ -629,7 +629,7 @@ class Studio:
         self.plot_angle.data = (x, ang, np.full(n, np.degrees(self.robot.lower[j])),
                                 np.full(n, np.degrees(self.robot.upper[j])))
         self.plot_angle.title = f"{self.gui_joint.value} angle (°)"
-        self.plot_speed.data = (x, np.abs(cyc.field("joint_vel")[:, j]), np.full(n, self.robot.velocity_limit))
+        self.plot_speed.data = (x, np.abs(cyc.field("joint_vel")[:, j]), np.full(n, min(self.robot.actuator.no_load_speed, self.robot.actuator.slew_limit)))
         use = rep.envelope_usage * 100
         self.plot_usage.data = (x, use[:, j], use.max(axis=1), np.full(n, 100.0))
         fh = cyc.field("foot_height") * 1000

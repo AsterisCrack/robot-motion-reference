@@ -1,0 +1,32 @@
+name: default
+base:
+  period: 0.9
+  double_support: 0.1
+  stance_width: 0.065
+  min_foot_gap: 0.012
+  toe_out: 0.0
+  step_height: 0.01
+  swing_ease: 0.2
+  apex_timing: 0.5
+  swing_overshoot: 0.0
+  swing_bulge: 0.0
+  heel_strike: 5.0
+  toe_off: 5.0
+  heel_roll_time: 0.13
+  toe_roll_time: 0.37
+  com_height: 0.208
+  com_forward: -0.005
+  sway_gain: 0.3
+  bob_amplitude: 0.0
+  bob_phase: 0.0
+  trunk_pitch: 0.0
+  trunk_roll_sway: 1.0
+  twist: 0.0
+  trunk_lean: 0.0
+anchors:
+  forward:
+    heel_strike: 8.0
+    toe_off: 12.0
+  backward:
+    heel_strike: 5.0
+    toe_off: 6.0
