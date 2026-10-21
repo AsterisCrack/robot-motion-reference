@@ -79,9 +79,9 @@ def test_heel_strike_grows_with_step_length(gen):
     assert strikes[0] > 2.0 and all(a < b for a, b in zip(strikes, strikes[1:]))
     _, _, p = _profile(gen, style, (0.2, 0.0, 0.0))
     assert p[-1] > 1.0                      # and the heel lifts before toe off
-    style.base["heel_off_angle"] = 5.0      # a smaller ankle range lifts it sooner and higher
-    _, _, p5 = _profile(gen, style, (0.2, 0.0, 0.0))
-    assert p5[-1] > p[-1] + 3.0
+    style.base["heel_off_angle"] = 5.0      # a smaller ankle range lifts it sooner and higher (at 0.2 m/s
+    _, _, p5 = _profile(gen, style, (0.2, 0.0, 0.0))   # the reach trigger already sets most of it)
+    assert p5[-1] > p[-1] + 0.5
 
 
 def test_backward_walking_reverses_the_rockers(gen):
@@ -164,3 +164,47 @@ def test_side_steps_lift_less_and_the_closing_step_least(gen):
     assert lead / close == pytest.approx(1.5, rel=0.15)
     fwd = gen.cycle(style, (0.1, 0.0, 0.0)).field("foot_height").max()
     assert fwd > 0.9 * h
+
+
+# ---------------------------------------------------------------------- turning and sway
+def _com_body_frame(c):
+    """CoM xy relative to the commanded path point, in the base's heading frame (mm)."""
+    out = []
+    for i in range(c.n_frames):
+        w, x, y, z = c.qpos[i, 3:7]
+        yaw = math.atan2(2 * (w * z + x * y), 1 - 2 * (y * y + z * z))
+        R = np.array([[math.cos(yaw), math.sin(yaw)], [-math.sin(yaw), math.cos(yaw)]])
+        out.append(R @ (c.com[i, :2] - c.path[i, :2]))
+    return 1000 * np.array(out)
+
+
+@pytest.mark.parametrize("gain", [0.0, 1.0])
+@pytest.mark.parametrize("wz", [0.4, 1.2])
+def test_turning_in_place_does_not_circle(gen, wz, gain):
+    """Turning, the body yaws over the planted foot; the centre of pressure rolls along the foot
+    instead of dragging the CoM fore-aft, which with the sway made the body circle."""
+    style = Style()
+    style.base["rollover_gain"] = gain
+    com = _com_body_frame(gen.cycle(style, (0.0, 0.0, wz)))
+    assert np.ptp(com[:, 0]) < 5.0
+    assert np.ptp(com[:, 1]) > 3.0 * np.ptp(com[:, 0])
+
+
+def test_zmp_inward_reduces_sway(gen):
+    """Sway is proportional to the ZMP's distance from the midline (LIPM)."""
+    centre = Style()
+    centre.base["zmp_inward"] = 0.0
+    a = np.ptp(_com_body_frame(gen.cycle(centre, (0.1, 0.0, 0.0)))[:, 1])
+    b = np.ptp(_com_body_frame(gen.cycle(Style(), (0.1, 0.0, 0.0)))[:, 1])
+    assert b < 0.75 * a
+
+
+@pytest.mark.parametrize("v", [0.05, 0.2])
+def test_default_sway_is_human_proportioned_and_feasible(gen, v):
+    """Peak-to-peak lateral CoM <= 0.2 leg lengths (humans walking this slowly: ~0.1), with the
+    ZMP still inside the feet."""
+    from gait_studio.analysis import Analyzer
+    c = gen.cycle(Style(), (v, 0.0, 0.0))
+    assert np.ptp(_com_body_frame(c)[:, 1]) / 1000 < 0.2 * gen.r.leg_length
+    margin = {k.name: k.value for k in Analyzer(gen.r).analyze(c).checks}["ZMP margin"]
+    assert margin > 3.0

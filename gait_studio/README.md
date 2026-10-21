@@ -60,7 +60,7 @@ Knobs come in three groups:
 |---|---|
 | Timing | cadence scale, speed → cadence, slowest / fastest cycle, max turn per step, double support |
 | Feet | stance width, toe-out, step height, swing ease, apex timing, reach overshoot, bulge, side-step lift, heel-to-toe amount, ankle at contact, loading response, heel-off ankle angle, max leg reach, push-off |
-| Body | CoM height, CoM forward, sway gain, bob, trunk pitch, roll sway, twist, lean into motion |
+| Body | CoM height, CoM forward, sway gain, ZMP inward, bob, trunk pitch, roll sway, twist, lean into motion |
 
 The **Editing** dropdown picks what you edit:
 - **Base** is the step-in-place gait.
@@ -126,6 +126,29 @@ anchor gets a 2° *roll sway* (hip hike) by default. *Pelvis twist* is its value
 scaled by the forward step length, since pelvic rotation follows sagittal step length (Huang et al.
 2011): there is none in place or sideways. + = the swing-side hip leads at heel strike; at this
 Froude number humans rotate the other way (negative).
+
+**Why it sways, and how much.** Humans do sway: the whole-body CoM moves ~2.5–3.5 cm peak-to-peak
+side to side at normal speed and up to ~10 cm at 0.3 m/s (Orendurff 2004, Staszkiewicz 2010, Tesio
+& Rota 2019). It reads as "no sway" because it is ~2% of stature, smooth, and the head is
+stabilised. It can't be avoided: on one foot the ZMP must be under that foot, so the inverted
+pendulum accelerates the CoM toward it and back. In the LIPM the excursion is
+`A = p·(1 − sech(ω·T_step/2))`, with `p` the ZMP's distance from the midline and `ω = √(g/z)`.
+Two things made this robot sway several times more than a human for its leg length:
+- **Feet too far apart.** The old 9 cm default stance is 0.43 leg lengths against the human 0.13, and
+  wider than the 6.0 cm hip-pitch spacing, so the legs splayed. The new default is 6.0 cm.
+- **ZMP at the sole centre.** Human feet nearly span their step width, so their pressure sits ~1 cm
+  from the midline. *ZMP inward* (default 0.6) aims the stance ZMP toward the inner sole edge,
+  keeping ~10 mm margin.
+
+Together they halve the sway: at vx 0.1, 71 → 35 mm peak-to-peak, ~0.17 leg lengths. Lengthening
+double support or reshaping the ZMP hand-over does not help (an exact periodic LIPM solve changes it
+by 1–3 mm). *Sway gain* below 1 is not dynamically consistent: the ZMP leaves the foot, as the ZMP
+margin check shows.
+
+**Turning.** The body yaws over the planted stance foot, so seen from the body the foot slides front
+to back. The centre of pressure rolls along the foot to stay under the body instead of dragging the
+CoM along; before, that drag plus the sway made the body circle. Rocker pitches below ~1.5° are
+treated as flat, so turning's tiny foot tilts don't throw the ZMP onto an edge.
 
 "Lean into motion" is signed: set it on Sideways or Turning and it mirrors with direction. Selecting an
 anchor also drives the robot to that command, so you see what you're editing.

@@ -36,6 +36,12 @@ from .robot import SIDES, RobotModel
 N_PROFILE = 41              # samples over one stance
 MAX_PITCH = math.radians(45.0)
 SOFT_WIDTH = math.radians(1.0)   # softplus width at the ankle-range limit: no velocity kink at heel off
+# Pitches below this are treated as flat (soft deadband). A degree of foot pitch is within sole
+# compliance and IK tolerance, but it moves the ZMP onto a pivot edge several cm away. Turning in
+# place produces exactly such small pitches, and the ZMP jump shifts the CoM, which moves the hip
+# over the foot and asks for more pitch on the next pass: the body ends up circling.
+PITCH_DEADBAND = math.radians(1.5)
+DEADBAND_WIDTH = math.radians(0.5)
 
 BodyAt = Callable[[float], tuple]   # t -> (CoM target (3,), base quaternion wxyz (4,))
 
@@ -197,5 +203,6 @@ class Rollover:
             if push > 0.0 and u_ps < 1.0:
                 ramp = np.array([smoothstep(x) for x in (u - u_ps) / (1.0 - u_ps)])
                 pitch = pitch + push * ramp * float(np.clip(lean[-1] / max(h, 1e-3), -1.0, 1.0))
+            pitch = np.sign(pitch) * _softplus(np.abs(pitch) - PITCH_DEADBAND, DEADBAND_WIDTH)
             out[side] = (u, np.clip(gain * pitch, -MAX_PITCH, MAX_PITCH))
         return out

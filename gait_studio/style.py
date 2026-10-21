@@ -51,8 +51,9 @@ KNOBS: list[Knob] = [
     Knob("double_support", "Double support", "Timing", 0.10, 0.03, 0.50, 0.01, "frac",
          help="Fraction of each step with both feet on the ground."),
     # --- Feet
-    Knob("stance_width", "Stance width", "Feet", 0.090, 0.060, 0.160, 0.002, "m",
-         help="Lateral distance between sole centres."),
+    Knob("stance_width", "Stance width", "Feet", 0.060, 0.048, 0.160, 0.002, "m",
+         help="Lateral distance between sole centres. 0.06 puts the feet under the hips (hip-pitch axes "
+              "6.0 cm apart); wider splays the legs and needs proportionally more sway."),
     Knob("min_foot_gap", "Min foot gap", "Feet", 0.012, 0.000, 0.040, 0.002, "m", anchorable=False,
          help="Clearance kept between the inner sole edges; widens the stance for sidesteps."),
     Knob("toe_out", "Toe-out", "Feet", 0.0, -10.0, 20.0, 0.5, "deg",
@@ -91,7 +92,11 @@ KNOBS: list[Knob] = [
     Knob("com_forward", "CoM forward offset", "Body", 0.0, -0.020, 0.020, 0.001, "m",
          help="Shifts the CoM ahead of the feet."),
     Knob("sway_gain", "Lateral sway gain", "Body", 1.0, 0.3, 2.0, 0.05, "x",
-         help="Scales the LIPM side-to-side CoM motion (1 = dynamically consistent)."),
+         help="Scales the LIPM side-to-side CoM motion. 1 = dynamically consistent; below 1 the ZMP leaves "
+              "the foot (watch ZMP margin). To sway less, use ZMP inward and a narrower stance instead."),
+    Knob("zmp_inward", "ZMP inward", "Body", 0.6, 0.0, 1.0, 0.05, "frac",
+         help="Where the ZMP sits across the stance foot: 0 = sole centre, 1 = inner edge (5 mm margin). "
+              "Sway is proportional to the ZMP's distance from the midline, so inward = less sway."),
     Knob("bob_amplitude", "Vertical bob", "Body", 0.0, 0.0, 0.015, 0.0005, "m",
          help="CoM up/down oscillation, twice per cycle."),
     Knob("bob_phase", "Bob phase", "Body", 0.0, -180.0, 180.0, 5.0, "deg"),

@@ -63,7 +63,7 @@ def smoothstep(x: float) -> float:
 ZMP_EDGE_INSET = 0.005      # ZMP target this far inside a pivot edge
 PIVOT_STRIP = 0.010         # support strip width along a pivot edge while the foot is pitched
 ROLL_EPS = math.radians(0.25)   # below this a foot counts as flat for the support polygon
-EDGE_FULL = math.radians(1.5)   # pitch at which the contact has fully moved onto the pivot edge
+EDGE_FULL = math.radians(3.0)   # pitch at which the ZMP has fully moved onto the pivot edge
 CLOSING_LIFT = 1.0 / 1.5    # closing side step lifts this much of the leading one (Cappellini 2023)
 
 
@@ -97,7 +97,7 @@ class GaitPlan:
         self.Tsw = self.Ts - self.Tds
         self.Tst = self.Ts + self.Tds                       # stance duration of one foot
 
-        self.sole_front, self.sole_back = sole_front, sole_back
+        self.sole_front, self.sole_back, self.sole_half_width = sole_front, sole_back, sole_half_width
         # Sidestepping makes every other step narrower by |vy|*Ts; widen the nominal stance so
         # the narrow one still keeps min_foot_gap between the inner sole edges.
         need = 2.0 * sole_half_width + style["min_foot_gap"] + abs(self.vy) * self.Ts
@@ -131,13 +131,16 @@ class GaitPlan:
             side = self.side_of_step(k)
             # Centre the footstep on the path at the middle of its stance interval
             # [k*Ts, (k+1)*Ts + Tds], so the average ZMP rides the path.
-            t_mid = k * self.Ts + 0.5 * (self.Ts + self.Tds)
-            p, yaw = self.path(t_mid)
+            p, yaw = self.path(self.stance_mid(k))
             lat = 0.5 * self.width if side == "left" else -0.5 * self.width
             pos = p + rotz(yaw) @ np.array([0.0, lat])
             foot_yaw = yaw + (self.toe_out if side == "left" else -self.toe_out)
             self.steps[k] = Footstep(side, pos, foot_yaw)
         return self.steps[k]
+
+    def stance_mid(self, k: int) -> float:
+        """Middle of footstep k's stance interval [k*Ts, (k+1)*Ts + Tds]."""
+        return k * self.Ts + 0.5 * (self.Ts + self.Tds)
 
     def step_index(self, t: float) -> int:
         """Step k with t in [k*Ts, (k+1)*Ts). Frames land exactly on step boundaries (phase 0 is a
@@ -228,16 +231,41 @@ class GaitPlan:
         The centre of pressure travels from the landing edge to the leaving edge over the stance
         (heel -> toe walking forward, toe -> heel backward, centred when stepping in place). While
         the foot is pitched it can only push on its pivot edge, so it sits there.
+
+        Turning: the body yaws over the planted foot, so seen from the body the foot slides from
+        front to back during the stance. A ZMP held at the foot centre would drag the CoM along
+        (with the sway, the body circles: a "hula hoop"). Instead the centre of pressure rolls
+        along the foot to stay where it was relative to the body at mid-stance. Only the rotation
+        is compensated; walking forward, the body passing over the foot is the point.
+
+        Laterally the target sits `zmp_inward` of the way from the sole centre toward the inner
+        edge. The sway needed to keep the ZMP on the stance foot is proportional to the ZMP's
+        distance from the midline (LIPM), and this robot's feet are far apart for its legs.
         """
         f = self.footstep(k)
         side = self.side_of_step(k)
         p_in, p_out, p = self.stance_pitch(side, 0.0), self.stance_pitch(side, 1.0), self.stance_pitch(side, u)
         x_in = edge_weight(p_in) * self._edge_offset(p_in)
         x_out = edge_weight(p_out) * self._edge_offset(p_out)
-        sweep = x_in + (x_out - x_in) * float(np.clip(u, 0.0, 1.0))
+        sweep = x_in + (x_out - x_in) * float(np.clip(u, 0.0, 1.0)) - self._turn_shift(k, u)
+        sweep = float(np.clip(sweep, -(self.sole_back - ZMP_EDGE_INSET), self.sole_front - ZMP_EDGE_INSET))
         w = edge_weight(p)
         x = (1.0 - w) * sweep + w * self._edge_offset(p)
-        return f.pos + x * (rotz(f.yaw) @ np.array([1.0, 0.0]))
+        inward = -1.0 if side == "left" else 1.0
+        y = inward * float(self.style["zmp_inward"]) * max(self.sole_half_width - ZMP_EDGE_INSET, 0.0)
+        return f.pos + rotz(f.yaw) @ np.array([x, y])
+
+    def _turn_shift(self, k: int, u: float) -> float:
+        """How far forward (along the foot) the body's yaw since mid-stance makes footstep k appear."""
+        if abs(self.wz) < 1e-9:
+            return 0.0
+        f = self.footstep(k)
+        t_mid = self.stance_mid(k)
+        p_mid, yaw_mid = self.path(t_mid)
+        _, yaw = self.path(k * self.Ts + u * self.Tst)
+        d = f.pos - p_mid
+        x_rot = float((rotz(yaw).T @ d)[0] - (rotz(yaw_mid).T @ d)[0])
+        return x_rot / max(math.cos(f.yaw - yaw), 0.5)
 
     def zmp_ref(self, t: float) -> np.ndarray:
         k = self.step_index(t)
