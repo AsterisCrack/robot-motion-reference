@@ -7,10 +7,12 @@ from dataclasses import dataclass, field
 import mujoco
 import numpy as np
 
+from .cadence import period_for
 from .footsteps import GaitPlan, convex_hull, rotz
 from .ik import IKTargets, WholeBodyIK, bent_knee_pose
 from .lipm import G, preview_com
 from .robot import SIDES, RobotModel
+from .rollover import Rollover
 from .style import Style
 
 # Layout of one reference frame. The env reads these by name from the baked npz, so the
@@ -35,6 +37,22 @@ FRAME_DIM = _o
 
 PLANNER_DT = 0.005
 
+
+def sample_com(com: np.ndarray, t_start: float, t: float) -> np.ndarray:
+    """CoM xy of a preview plan (samples [pos, vel, acc] every PLANNER_DT from t_start) at time t.
+
+    Frames sit at period/n_frames, which is generally not a multiple of PLANNER_DT. Rounding to
+    the nearest sample jitters the position by up to half a sample, and the frames' second
+    difference turns that into a ZMP error of centimetres. The cart-table model's jerk is
+    piecewise constant, so the exact in-between value is a cubic.
+    """
+    x = (t - t_start) / PLANNER_DT
+    k = int(min(max(math.floor(x), 0), com.shape[0] - 2))
+    tau = (x - k) * PLANNER_DT
+    pos, vel, acc = com[k, :, 0], com[k, :, 1], com[k, :, 2]
+    jerk = (com[k + 1, :, 2] - acc) / PLANNER_DT
+    return pos + vel * tau + acc * tau * tau / 2.0 + jerk * tau ** 3 / 6.0
+
 def mirror_rows(frames: np.ndarray, robot: RobotModel) -> np.ndarray:
     """Left/right reflection of table rows (..., FRAME_DIM). V2 joints mirror as a pure permutation."""
     out = frames.copy()
@@ -51,6 +69,8 @@ def mirror_rows(frames: np.ndarray, robot: RobotModel) -> np.ndarray:
     return out
 
 WARMUP_CYCLES = 3
+ROLLOVER_PASSES = 2              # rocker profile from the flat-foot CoM plan, then once more on its own
+IK_RETRY_RESIDUAL = 5e-4         # m; a frame that ends further than this from its targets gets more iterations
 
 
 def quat_from_euler(roll: float, pitch: float, yaw: float) -> np.ndarray:
@@ -76,7 +96,7 @@ def mat_from_yaw_pitch(yaw: float, pitch: float) -> np.ndarray:
 class GaitCycle:
     cmd: np.ndarray
     period: float
-    dt: float
+    dt: float                     # spacing of the frames: period / n_frames (phase-normalised)
     frames: np.ndarray            # (N, FRAME_DIM) table rows
     qpos: np.ndarray              # (N, nq) for display, cycle-local world frame
     sole_pos: dict                # side -> (N, 3)
@@ -91,10 +111,16 @@ class GaitCycle:
     style: dict = field(default_factory=dict)
     path: np.ndarray | None = None      # (N, 3) commanded path pose [x, y, yaw], cycle-local
     standing: bool = False
+    pitch_profiles: dict | None = None  # side -> (u, pitch) the rocker model gave the stance feet
 
     @property
     def n_frames(self) -> int:
         return self.frames.shape[0]
+
+    @property
+    def freq(self) -> float:
+        """Gait clock frequency [cycles/s]."""
+        return 1.0 / self.period
 
     def field(self, name: str) -> np.ndarray:
         return self.frames[:, FIELD_SLICES[name]]
@@ -106,12 +132,30 @@ class GaitGenerator:
         self.ik = WholeBodyIK(robot)
         self._corners = {s: robot.sole_corners_local(s) for s in SIDES}
         self._stand_cache: dict = {}
+        self._rollover_cache: dict = {}
         self._warm_q: np.ndarray | None = None
 
     # ------------------------------------------------------------------ helpers
+    def period(self, cmd, st: dict) -> float:
+        """Cycle length for a command from the cadence law (cadence.py)."""
+        return period_for(cmd, st, self.r.leg_length, self.r.command_ranges["vx"][1])
+
     def _plan(self, cmd, st: dict) -> GaitPlan:
         sl = self.r.soles["left"]
-        return GaitPlan(cmd, st, sl.half_width, sl.front, sl.back, self.r.control_dt)
+        return GaitPlan(cmd, st, sl.half_width, sl.front, sl.back, self.period(cmd, st), self.r.n_phase)
+
+    def _twist_amplitude(self, cmd, st: dict, period: float) -> float:
+        """Pelvis yaw amplitude [rad]: the knob is its value at max forward speed, scaled by the
+        forward step length, since pelvic rotation follows sagittal step length (Huang et al.
+        2011) and is absent stepping in place or sideways."""
+        vx = float(cmd[0])
+        lo, hi = self.r.command_ranges["vx"]
+        v_ref = hi if vx >= 0.0 else lo
+        if abs(v_ref) < 1e-9:
+            return 0.0
+        s_ref = abs(v_ref) * self.period((v_ref, 0.0, 0.0), st) / 2.0
+        frac = float(np.clip(abs(vx) * period / 2.0 / s_ref, 0.0, 1.5))
+        return math.radians(st["twist"]) * frac
 
     def _sole_targets(self, plan: GaitPlan, t: float):
         pos, mat, contact = {}, {}, {}
@@ -164,7 +208,7 @@ class GaitGenerator:
             rects.append(soles[s][:2] + self._corners[s] @ R[:2, :2].T)
         support = convex_hull(np.concatenate(rects))
         return GaitCycle(
-            cmd=np.zeros(3), period=plan.period, dt=r.control_dt,
+            cmd=np.zeros(3), period=plan.period, dt=plan.period / n,
             frames=np.repeat(frame[None], n, axis=0),
             qpos=np.repeat(q[None], n, axis=0), qpos_ext=np.repeat(q[None], n + 2, axis=0),
             sole_pos={s: np.repeat(soles[s][None], n, axis=0) for s in SIDES},
@@ -177,11 +221,17 @@ class GaitGenerator:
         )
 
     # ------------------------------------------------------------------ cycle
-    def cycle(self, style: Style, cmd) -> GaitCycle:
-        cmd = np.asarray(cmd, dtype=float)
-        st = style.resolve(cmd, self.r.command_ranges)
-        plan = self._plan(cmd, st)
-        T, N, dt = plan.period, plan.n_frames, self.r.control_dt
+    def _rollover(self, style: Style) -> Rollover:
+        _, q_stand = self.stand(style)
+        key = q_stand.tobytes()
+        if key not in self._rollover_cache:
+            self._rollover_cache[key] = Rollover(self.r, q_stand)
+        return self._rollover_cache[key]
+
+    def _body_targets(self, plan: GaitPlan, st: dict, cmd: np.ndarray):
+        """CoM and base-orientation targets as a function of time, for this plan's ZMP reference."""
+        T, N = plan.period, plan.n_frames
+        dt = T / N
         t0 = WARMUP_CYCLES * T
 
         # --- CoM: preview control on the ZMP reference, from just before the path start.
@@ -193,29 +243,36 @@ class GaitGenerator:
         v0 = rotz(yaw0) @ np.array([plan.vx, plan.vy])
         x0 = np.array([[p0[0], v0[0], 0.0], [p0[1], v0[1], 0.0]])
         com_xy = preview_com(zref, st["com_height"], PLANNER_DT, x0=x0, horizon=horizon)
+        twist = self._twist_amplitude(cmd, st, T)
 
-        # --- sample the output frames (one extra on each side for derivatives)
-        t_out = t0 + dt * np.arange(-1, N + 1)
-        fine_idx = np.rint((t_out - ts[0]) / PLANNER_DT).astype(int)
-        phase = (t_out / T) % 1.0
-        # "single-support centred" phase angle: sin peaks mid right-single-support
-        psi = 2.0 * np.pi * (phase - st["double_support"] / 4.0)
-
-        com_t, base_q = [], []
-        for i, t in enumerate(t_out):
-            c = com_xy[fine_idx[i], :, 0]
+        def body_at(t: float):
+            phase = (t / T) % 1.0
+            # "single-support centred" phase angle: sin peaks mid right-single-support
+            psi = 2.0 * np.pi * (phase - st["double_support"] / 4.0)
+            c = sample_com(com_xy, ts[0], t)
             pth, yaw = plan.path(t)
             Rp = rotz(yaw)
             local = Rp.T @ (c - pth)
             local[1] *= st["sway_gain"]
             local[0] += st["com_forward"]
             cxy = pth + Rp @ local
-            cz = st["com_height"] + st["bob_amplitude"] * math.cos(4.0 * np.pi * phase[i] + math.radians(st["bob_phase"]))
-            com_t.append(np.array([cxy[0], cxy[1], cz]))
-            roll = math.radians(st["trunk_roll_sway"]) * math.sin(psi[i]) - math.radians(st["trunk_lean"])
+            cz = st["com_height"] + st["bob_amplitude"] * math.cos(4.0 * np.pi * phase + math.radians(st["bob_phase"]))
+            roll = math.radians(st["trunk_roll_sway"]) * math.sin(psi) - math.radians(st["trunk_lean"])
             pitch = math.radians(st["trunk_pitch"])
-            yaw_b = yaw + math.radians(st["twist"]) * math.sin(psi[i])
-            base_q.append(quat_from_euler(roll, pitch, yaw_b))
+            # Pelvis yaw peaks at heel strike: + puts the hip of the foot landing at phase 0
+            # (right) forward then, and the left one at phase 0.5.
+            yaw_b = yaw + twist * math.cos(2.0 * np.pi * phase)
+            return np.array([cxy[0], cxy[1], cz]), quat_from_euler(roll, pitch, yaw_b)
+
+        return body_at, t0, dt
+
+    def _solve(self, plan: GaitPlan, st: dict, style: Style, cmd: np.ndarray) -> dict:
+        """CoM plan + whole-body IK over one cycle (plus one frame each side) for a plan."""
+        body_at, t0, dt = self._body_targets(plan, st, cmd)
+        t_out = t0 + dt * np.arange(-1, plan.n_frames + 1)   # one extra frame each side for derivatives
+        targets = [body_at(t) for t in t_out]
+        com_t = [c for c, _ in targets]
+        base_q = [q for _, q in targets]
 
         # --- IK, warm-started along the timeline
         _, q_stand = self.stand(style)
@@ -228,13 +285,40 @@ class GaitGenerator:
             pos, mat, contact = self._sole_targets(plan, t)
             tg = IKTargets(com=com_t[i], base_quat=base_q[i], sole_pos=pos, sole_mat=mat, contact=contact)
             q, e = self.ik.solve(q, tg, iters=60 if i == 0 else 25)
+            res = self.ik.split_residual(e, contact)
+            if res[0] > IK_RETRY_RESIDUAL:
+                # Near a straight knee (long single support, big sway) the warm start can stall
+                # in a local minimum short of a reachable target. Retry longer, from there and
+                # from the standing legs, and keep whichever lands closer.
+                seed = q.copy()
+                seed[self.r.qpos_adr] = q_stand[self.r.qpos_adr]
+                for q_try, e_try in (self.ik.solve(q, tg, iters=150), self.ik.solve(seed, tg, iters=150)):
+                    r_try = self.ik.split_residual(e_try, contact)
+                    if r_try[0] < res[0]:
+                        q, e, res = q_try, e_try, r_try
             qs.append(q.copy())
-            residual.append(self.ik.split_residual(e, contact))
+            residual.append(res)
             contacts.append([float(contact["left"]), float(contact["right"])])
             for s in SIDES:
                 soles[s].append(pos[s])
-        qs = np.array(qs)
-        contacts = np.array(contacts)
+        return {"t_out": t_out, "t0": t0, "dt": dt, "qs": np.array(qs), "com_t": com_t,
+                "residual": residual, "contacts": np.array(contacts), "soles": soles}
+
+    def cycle(self, style: Style, cmd) -> GaitCycle:
+        cmd = np.asarray(cmd, dtype=float)
+        st = style.resolve(cmd, self.r.command_ranges)
+        plan = self._plan(cmd, st)
+        if st["rollover_gain"] > 0.0:
+            # Rocker model: foot pitch from the leg geometry the plan implies (rollover.py),
+            # first on the flat-foot CoM plan, then on the plan its own ZMP reference gives.
+            ro = self._rollover(style)
+            t_ref = WARMUP_CYCLES * plan.period
+            for _ in range(ROLLOVER_PASSES):
+                body_at, _, _ = self._body_targets(plan, st, cmd)
+                plan.set_pitch_profiles(ro.profiles(plan, st, body_at, t_ref))
+        sol = self._solve(plan, st, style, cmd)
+        T, dt, t0, t_out = plan.period, sol["dt"], sol["t0"], sol["t_out"]
+        qs, contacts, soles, residual = sol["qs"], sol["contacts"], sol["soles"], sol["residual"]
 
         frames = self._frames_from_qpos(qs, contacts[1:-1], dt)
 
@@ -249,7 +333,7 @@ class GaitGenerator:
             out = np.zeros(4)
             mujoco.mju_mulQuat(out, qz, qs[i, 3:7])
             qpos_loc[i, 3:7] = out
-        com_arr = np.array(com_t)
+        com_arr = np.array(sol["com_t"])
         com_loc = np.column_stack([loc(com_arr[:, :2]), com_arr[:, 2]])
 
         # ZMP implied by the final (styled) CoM: p = c_xy - c_z * a_xy / (g + a_z)
@@ -257,7 +341,7 @@ class GaitGenerator:
         zmp = com_arr[1:-1, :2] - com_arr[1:-1, 2:3] * acc[:, :2] / (G + acc[:, 2:3])
         support = [plan.support_polygon(t, self._corners) for t in t_out[1:-1]]
 
-        k0 = int(math.floor(t0 / plan.Ts))
+        k0 = plan.step_index(t0)
         steps = [plan.footstep(k) for k in range(k0 - 2, k0 + 4)]
 
         return GaitCycle(
@@ -273,6 +357,7 @@ class GaitGenerator:
             footsteps=[(f.side, loc(f.pos), f.yaw - yaw_ref) for f in steps],
             path=np.array([np.r_[loc(plan.path(t)[0]), plan.path(t)[1] - yaw_ref] for t in t_out[1:-1]]),
             style=st,
+            pitch_profiles=plan.profiles,
         )
 
     # ------------------------------------------------------------------ table rows

@@ -9,6 +9,11 @@ import argparse
 import glob
 import math
 import os
+
+# One BLAS thread: the IK solves thousands of tiny systems per cycle, and multithreaded OpenBLAS
+# overhead makes that several times slower (badly so on Windows). Same as bake.py.
+for _v in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS"):
+    os.environ.setdefault(_v, "1")
 import threading
 import time
 import traceback
@@ -542,7 +547,8 @@ class Studio:
             st = res["status"]
             self.bake_md.content = (f"Wrote `{out}`\n\n{ICON[OK]} {int((st == 0).sum())} "
                                     f"{ICON[WARN]} {int((st == 1).sum())} {ICON[FAIL]} {int((st == 2).sum())} "
-                                    f"of {st.size} commands, period {res['period']:.2f} s\n\n"
+                                    f"of {st.size} commands, period {1.0 / res['freq'].max():.2f}-"
+                                    f"{1.0 / res['freq'].min():.2f} s\n\n"
                                     f"```\n{res['report']}\n```")
         except Exception:  # noqa: BLE001
             self.bake_md.content = f"Bake failed:\n```\n{traceback.format_exc()}\n```"
@@ -608,10 +614,16 @@ class Studio:
                 rows.append(f"| {c.name} | {c.value:.2f} {c.unit} {('· ' + c.detail) if c.detail else ''} | {ICON[c.status]} |")
             self.check_md.content = "\n".join(rows)
             return
+        step = math.hypot(self.cmd[0], self.cmd[1]) * cyc.period / 2
+        froude = (self.cmd[0] ** 2 + self.cmd[1] ** 2) / (9.81 * self.robot.leg_length)
+        heel = ""
+        if cyc.pitch_profiles:
+            _, p = cyc.pitch_profiles["right"]
+            heel = f" · land {-math.degrees(p[0]):+.0f}° / leave {math.degrees(p[-1]):+.0f}° (toes up / heel up)"
         self.status_md.content = (
             f"{ICON[rep.status]} **{rep.status.upper()}** · cmd ({self.cmd[0]:+.2f}, {self.cmd[1]:+.2f}, "
-            f"{self.cmd[2]:+.2f}) · period {cyc.period:.2f} s · step "
-            f"{abs(self.cmd[0]) * cyc.period / 2 * 100:.1f} cm · width {st['stance_width'] * 100:.1f} cm · "
+            f"{self.cmd[2]:+.2f}) · cycle {cyc.period:.2f} s ({120.0 / cyc.period:.0f} steps/min) · step "
+            f"{step * 100:.1f} cm · Fr {froude:.3f} · width {st['stance_width'] * 100:.1f} cm{heel} · "
             f"{self.gen_ms:.0f} ms")
         rows = ["| check | value | |", "|---|---|---|"]
         for c in rep.checks:

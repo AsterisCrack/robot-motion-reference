@@ -58,8 +58,8 @@ Knobs come in three groups:
 
 | Group | Knobs |
 |---|---|
-| Timing | period, double support |
-| Feet | stance width, toe-out, step height, swing ease, apex timing, reach overshoot, bulge, heel strike, toe off, heel/toe roll time |
+| Timing | cadence scale, speed → cadence, slowest / fastest cycle, max turn per step, double support |
+| Feet | stance width, toe-out, step height, swing ease, apex timing, reach overshoot, bulge, side-step lift, heel-to-toe amount, ankle at contact, loading response, heel-off ankle angle, max leg reach, push-off |
 | Body | CoM height, CoM forward, sway gain, bob, trunk pitch, roll sway, twist, lean into motion |
 
 The **Editing** dropdown picks what you edit:
@@ -74,18 +74,61 @@ zero command.
   anchor it returns to that anchor's default.
 - **Reset all knobs** restores the whole style, after a confirmation.
 
-**Heel-to-toe** (heel strike, toe off, roll times):
-- The stance foot lands toes-up and rolls down about its heel edge, then peels the heel up and
-  leaves off the toe. Walking backward reverses this.
-- The pivot edge stays planted (the tests check this to within 1.5 mm).
-- The swing starts and ends at the rolled poses.
-- The ZMP reference follows the contact region (heel edge → sweep → toe edge), so the CoM plan stays
-  dynamically consistent. While a foot is rolled, the support polygon shrinks to a 1 cm strip along
+**Cadence** (Timing): the cycle length follows the command, as in humans, who split a speed change
+between step length and step frequency (step length ∝ v^0.42–0.58: Grieve 1968, Kuo 2001, Wu et al.
+2019). In leg-length units the law holds across body sizes (Hof 1996): `s/L = 1.15·v'^β` with
+`v' = v/√(gL)`. This leg (L = 0.21 m) tops out at Fr ≈ 0.02, human very slow walking:
+
+| command | cycle | step |
+|---|---|---|
+| vx 0.20 | 0.90 s | 9.0 cm |
+| vx 0.10 | 1.27 s | 6.4 cm |
+| vx 0.05 | 1.80 s | 4.5 cm |
+| vy 0.15 | 0.70 s | sideways counts at 1/0.45 of its speed (Handford & Srinivasan 2014) |
+| wz 1.2 in place | 0.73 s | quickened so one step turns at most *max turn per step* |
+
+*Slowest cycle* caps the slow end (the human law gives ~1.9 s near the walk threshold), *fastest
+cycle* the fast end, *speed → cadence* is 1−β (0 = constant cadence), *cadence scale* shifts the
+whole curve. These knobs are global, the law already depends on the command. A style saved with the
+old global `period` keeps exactly that cadence. The Drive tab's status line shows cycle, steps/min,
+step length and Froude number.
+
+**Heel-to-toe** comes from the rocker model (`rollover.py`), not from hand-set angles. Human stance
+has three rockers (Perry): the leg arrives inclined with the ankle near neutral, so the foot lands
+toes-up by the shank's lean and is lowered onto the heel (*loading response*); then the foot is flat
+and the shank rolls over it; once the ankle has used its range (*heel-off ankle angle*, ~10° in
+humans) the heel lifts and the foot pivots on its toe, plantarflexing further in pre-swing
+(*push-off*). The ankle angle is foot pitch minus shank lean, so all of it follows from where the
+leg is. Why humans do it: a rolling foot smooths the step-to-step transition and cuts the heel-strike
+collision loss (Adamczyk, Collins & Kuo 2006), and it lengthens the effective leg. Robots add a
+second trigger (Kajita; Miura et al. 2011): when the hip is further from the ankle than the leg
+reaches (*max leg reach*), the foot pivots on its edge so the ankle rises toward the hip.
+- The leg is evaluated from the plan (hip from the CoM target, ankle from the footstep, knee from the
+  thigh/shank lengths), not from an IK solve, so a near-straight leg that cannot reach a step
+  flat-footed does not feed its own errors back.
+- Consequences, none of them authored: heel strike grows with step length (~10° at vx 0.1, ~19° at
+  0.2; in humans the heel-strike angle is about the leg angle at touchdown, ~20°), the toes lead and the heel
+  leaves last walking backward, and side steps and stepping in place stay flat (no sagittal shank lean
+  in the foot's frame). *Ankle at contact* shifts the landing pitch, *heel-to-toe amount* scales it all
+  (0 = flat feet).
+- The pivot edge stays planted (the tests check this to within 1.5 mm), the swing starts and ends at the
+  rolled poses, and the ZMP reference follows the contact (landing edge → sweep → leaving edge), so the CoM
+  plan stays dynamically consistent. While a foot is pitched, its support shrinks to a 1 cm strip along
   the planted edge.
-- By default it is set on the Forward/Backward anchors only, so stepping in place stays flat.
-- It also helps the servos: toe-off lengthens the effective leg. At 0.2 m/s, peak joint speed
-  drops from about 6 to 3.5 rad/s. "Lean into motion" is signed: set it on Sideways or Turning and it mirrors with
-direction. Selecting an anchor also drives the robot to that command, so you see what you're editing.
+- It also helps the servos: at vx 0.1 the default style's torque-speed usage drops from ~310 % with flat
+  feet to ~110 %.
+
+**Direction-aware knobs.** Humans side-step with a nearly straight knee (knee range ~10° against ~60°
+forward), getting clearance from hip abduction and a hip hike, and the leading foot lifts higher than
+the closing one (Cappellini et al. 2023). So a sideways swing lifts *side-step lift* × step height
+(the closing step 1/1.5 of that), the outward *bulge* fades out for sideways steps, and the Sideways
+anchor gets a 2° *roll sway* (hip hike) by default. *Pelvis twist* is its value at max forward speed
+scaled by the forward step length, since pelvic rotation follows sagittal step length (Huang et al.
+2011): there is none in place or sideways. + = the swing-side hip leads at heel strike; at this
+Froude number humans rotate the other way (negative).
+
+"Lean into motion" is signed: set it on Sideways or Turning and it mirrors with direction. Selecting an
+anchor also drives the robot to that command, so you see what you're editing.
 
 ### Check tab
 Each check is graded 🟢 / 🟡 / 🔴 for the current command:
@@ -109,9 +152,10 @@ Save/load style presets (`styles/*.yaml`) and **Bake**. The same thing from the 
 python -m gait_studio.bake --style gait_studio/styles/default.yaml --out processed/gait_table.npz
 ```
 
-Baking sweeps the grid in `configs/robot_v2.yaml` (11×7×13 commands, wz up to ±1.2 rad/s, about 6 s). Steps:
+Baking sweeps the grid in `configs/robot_v2.yaml` (9×7×13 commands, wz up to ±1.2 rad/s, about 13 s). Steps:
 1. Generate and check one cycle per command.
-2. Make the table exactly left/right symmetric. The env's symmetry augmentation relies on this.
+2. Make the table and its clock frequency grid exactly left/right symmetric. The env's symmetry
+   augmentation relies on this.
 3. Write three files:
    - `gait_table.npz`
    - `gait_table_style.yaml` (the exact style that was baked)
@@ -121,7 +165,9 @@ Baking sweeps the grid in `configs/robot_v2.yaml` (11×7×13 commands, wz up to 
 
 ## What's in the table
 
-`data[n_vx, n_vy, n_wz, n_frames, 44]`, at 50 Hz over one period. Frame layout (`gait.FIELDS`):
+`data[n_vx, n_vy, n_wz, n_phase, 44]` (table v2): every cycle is stored **phase-normalised**,
+`n_phase` = 64 samples per cycle, because each command has its own period. `freq[n_vx, n_vy, n_wz]`
+is the gait clock frequency (cycles/s) per command. Frame layout (`gait.FIELDS`):
 
 | field | dims | notes |
 |---|---|---|
@@ -133,8 +179,8 @@ Baking sweeps the grid in `configs/robot_v2.yaml` (11×7×13 commands, wz up to 
 | foot_height | 2 | sole above the ground |
 | contact | 2 | 1 = stance |
 
-Plus `stand` (the standing frame), the grid axes, `period`, the field layout, and the per-command
-feasibility status and metrics.
+Plus `stand` (the standing frame), the grid axes, `period` (the zero-command cycle, display only), the
+field layout, and the per-command feasibility status and metrics.
 
 **Phase convention:**
 - Phase 0 is a right-foot touchdown.
@@ -145,9 +191,10 @@ feasibility status and metrics.
 
 See `BipedRobot/config/config_gait_reference.yaml`.
 
-- **Gait clock.** It runs at 1/period and holds while the command is below `stand_threshold`. This
-  replaces the speed-proportional clock. The policy still sees `[sin, cos]`, so the obs size doesn't
-  change.
+- **Gait clock.** It advances by `2π·dt·freq(cmd)`, with `freq` interpolated trilinearly in the
+  command and clamped to the grid (the same rule as the table), and holds while the command is below
+  `stand_threshold`. A v1 table runs at one period. The policy still sees `[sin, cos]`, so the obs
+  size doesn't change.
 - **Imitation rewards.** The `imitation_*` terms are exp kernels: joint pos/vel, foot positions in
   the base frame, orientation, base velocity, and contact match. They compare against
   `reference(command, phase)`, interpolated on the GPU (trilinear in the command, linear in phase).
@@ -156,7 +203,8 @@ See `BipedRobot/config/config_gait_reference.yaml`.
   `gait_phase_contact`, `feet_air_time`, the `joint_deviation_*` terms, and `foot_separation`.
 
 Nothing from the table is needed on the robot. The runtime only needs the same clock rule, which
-`export_onnx.py` writes into `deploy_config.json` under `gait_clock`.
+`export_onnx.py` writes into `deploy_config.json` under `gait_clock`: `cadence_grid` (axes + freq,
+bundle format v5) for a v2 table whose cadence varies, `fixed_period` otherwise.
 
 ## What the analyzer says about this robot
 
@@ -187,7 +235,9 @@ samples 11.1–12.6 V, so margins near the limit are tighter at the low end).
 |---|---|
 | `robot.py` | Loads the training MJCF, re-points mesh paths, measures the soles, adds sole sites |
 | `style.py` | Knob definitions, anchors, blending, yaml I/O |
+| `cadence.py` | Speed-dependent cycle length (human gait scaling) |
 | `footsteps.py` | Path integration, footstep schedule, swing curves, ZMP reference |
+| `rollover.py` | Rocker model: stance-foot pitch (heel strike, heel off) from the leg geometry |
 | `lipm.py` | ZMP preview control (Kajita 2003) |
 | `ik.py` | Floating-base damped least-squares IK with an active set on joint limits |
 | `gait.py` | `GaitGenerator.cycle()` / `.stand()` and the table frame layout |
@@ -196,7 +246,7 @@ samples 11.1–12.6 V, so margins near the limit are tighter at the low end).
 | `physics.py` | Open-loop MuJoCo preview |
 | `bake.py` | Grid bake, symmetrization, report |
 | `app.py` | The viser web UI |
-| `tests/` | Symmetry, periodicity, velocity tracking, phase convention, table symmetry |
+| `tests/` | Symmetry, periodicity, velocity tracking, phase convention, table symmetry, cadence, rocker model, side steps |
 
 Run the tests from `robot_motion_reference/`:
 

@@ -36,9 +36,18 @@ class Knob:
 
 
 KNOBS: list[Knob] = [
-    # --- Timing
-    Knob("period", "Gait period", "Timing", 0.70, 0.36, 0.90, 0.02, "s", anchorable=False,
-         help="Full cycle (two steps). Global: the policy clock runs at 1/period. Snapped to the 50 Hz grid."),
+    # --- Timing. Cadence follows the human speed law (cadence.py); none of these blend by anchor
+    # because the law already depends on the command.
+    Knob("cadence_scale", "Cadence scale", "Timing", 1.0, 0.6, 1.6, 0.02, "x", anchorable=False,
+         help="Multiplies the human (Froude-scaled) step frequency. >1 = quicker, shorter steps."),
+    Knob("cadence_exponent", "Speed → cadence", "Timing", 0.5, 0.0, 0.8, 0.02, "", anchorable=False,
+         help="Cadence ∝ speed^this (humans ~0.42-0.58). 0 = constant cadence, all speed from step length."),
+    Knob("period_max", "Slowest cycle", "Timing", 2.0, 0.36, 2.4, 0.02, "s", anchorable=False,
+         help="Cap on the cycle at slow speeds. The human law gives ~1.9 s at 0.05 m/s for this leg."),
+    Knob("period_min", "Fastest cycle", "Timing", 0.5, 0.36, 1.2, 0.02, "s", anchorable=False,
+         help="Floor on the cycle at high speeds."),
+    Knob("max_step_yaw", "Max turn per step", "Timing", 25.0, 10.0, 40.0, 0.5, "deg", anchorable=False,
+         help="Quickens the cadence when turning so one step never turns more than this (hip yaw limit 45°)."),
     Knob("double_support", "Double support", "Timing", 0.10, 0.03, 0.50, 0.01, "frac",
          help="Fraction of each step with both feet on the ground."),
     # --- Feet
@@ -58,14 +67,24 @@ KNOBS: list[Knob] = [
          help="Swing foot reaches past its target and settles back (fraction of the step)."),
     Knob("swing_bulge", "Swing bulge", "Feet", 0.0, -0.010, 0.030, 0.001, "m",
          help="Outward arc of the swing foot."),
-    Knob("heel_strike", "Heel strike", "Feet", 0.0, 0.0, 25.0, 0.5, "deg",
-         help="Land toes-up on the heel and roll down onto the sole (toe strike when walking backward)."),
-    Knob("toe_off", "Toe off", "Feet", 0.0, 0.0, 35.0, 0.5, "deg",
-         help="Peel the heel up and leave off the toe (heel last when walking backward)."),
-    Knob("heel_roll_time", "Heel roll time", "Feet", 0.15, 0.05, 0.40, 0.01, "frac",
-         help="Fraction of the stance spent rolling down from the heel."),
-    Knob("toe_roll_time", "Toe roll time", "Feet", 0.30, 0.05, 0.50, 0.01, "frac",
-         help="Fraction of the stance spent rolling up onto the toe (the ZMP must be at the toe then)."),
+    Knob("lateral_lift", "Side-step lift", "Feet", 0.6, 0.3, 1.0, 0.02, "x",
+         help="Foot lift for sideways steps, relative to step height (humans side-step with a nearly "
+              "straight knee). The closing step lifts 1/1.5 of the leading one."),
+    # --- Heel-to-toe: the rocker model (rollover.py). Foot pitch follows the shank, not a schedule.
+    Knob("rollover_gain", "Heel-to-toe amount", "Feet", 1.0, 0.0, 1.5, 0.05, "x",
+         help="Scales the heel strike / toe off that the rocker model derives from leg geometry. 0 = flat feet."),
+    Knob("contact_ankle", "Ankle at contact", "Feet", 0.0, -10.0, 15.0, 0.5, "deg",
+         help="Ankle dorsiflexion at touchdown, relative to mid-stance (hip over the ankle; humans ~0). "
+              "The foot lands pitched by the shank's lean plus this, so heel strike grows with step length."),
+    Knob("heel_roll_time", "Loading response", "Feet", 0.17, 0.05, 0.40, 0.01, "frac",
+         help="Fraction of the stance spent lowering the foot from heel (or toe) contact to flat (humans ~0.17)."),
+    Knob("heel_off_angle", "Heel-off ankle angle", "Feet", 10.0, 2.0, 30.0, 0.5, "deg",
+         help="How far the shank may lean over the flat foot, either way from mid-stance, before the foot "
+              "pivots onto an edge: the heel lifts walking forward (humans ~10)."),
+    Knob("max_leg_reach", "Max leg reach", "Feet", 0.97, 0.85, 1.0, 0.005, "frac", anchorable=False,
+         help="Fraction of the straight hip-ankle length. Beyond it the stance foot pivots on its edge to keep reaching."),
+    Knob("push_off", "Push-off", "Feet", 0.0, 0.0, 20.0, 0.5, "deg",
+         help="Extra plantarflexion through the final double support (humans ~15-20). The ZMP must be at the toe then."),
     # --- Body
     Knob("com_height", "CoM height", "Body", 0.195, 0.150, 0.208, 0.001, "m",
          help="Lower = more knee bend."),
@@ -80,8 +99,9 @@ KNOBS: list[Knob] = [
          help="Forward lean of the torso."),
     Knob("trunk_roll_sway", "Roll sway", "Body", 0.0, -8.0, 8.0, 0.25, "deg",
          help="Torso roll toward the stance foot."),
-    Knob("twist", "Pelvis twist", "Body", 0.0, 0.0, 12.0, 0.25, "deg",
-         help="Pelvis yaw oscillation with the steps."),
+    Knob("twist", "Pelvis twist", "Body", 0.0, -12.0, 12.0, 0.25, "deg",
+         help="Pelvis yaw at max forward speed, scaled by the forward step length (none in place or sideways). "
+              "+ = the swing-side hip leads at heel strike; humans this slow rotate the other way (-)."),
     Knob("trunk_lean", "Lean into motion", "Body", 0.0, -15.0, 15.0, 0.5, "deg", signed=True,
          help="Torso roll into sidesteps / turns. Set on the Sideways or Turning anchor."),
 ]
@@ -111,12 +131,16 @@ def _clamp(x, lo, hi):
     return max(lo, min(hi, x))
 
 
-# Out-of-the-box anchor overrides: heel-to-toe only when actually walking, so stepping in place
-# stays flat. "Reset all" returns to these.
+# Out-of-the-box anchor overrides. "Reset all" returns to these. Heel-to-toe needs none: the rocker
+# model scales it with the step. Side steps hike the swing hip (roll toward the stance foot), the
+# clearance humans use instead of knee bend.
 DEFAULT_ANCHORS = {
-    "forward": {"heel_strike": 8.0, "toe_off": 12.0},
-    "backward": {"heel_strike": 5.0, "toe_off": 6.0},
+    "sideways": {"trunk_roll_sway": 2.0},
 }
+
+# Knobs that no longer exist. heel_strike / toe_off / toe_roll_time were hand-set angles, replaced
+# by the rocker model; a fixed `period` became the cadence law.
+LEGACY_KNOBS = ("period", "heel_strike", "toe_off", "toe_roll_time")
 
 
 @dataclass
@@ -223,7 +247,16 @@ class Style:
     @classmethod
     def from_dict(cls, d: dict) -> "Style":
         base = {k.name: k.default for k in KNOBS}
-        base.update({k: float(v) for k, v in (d.get("base") or {}).items() if k in KNOB_BY_NAME})
+        raw = d.get("base") or {}
+        base.update({k: float(v) for k, v in raw.items() if k in KNOB_BY_NAME})
+        if "period" in raw and not any(k in raw for k in ("period_min", "period_max")):
+            # A fixed-period style keeps its cadence exactly: the law clamps to [period, period].
+            base["period_min"] = base["period_max"] = float(raw["period"])
+        dropped = sorted({k for k in raw if k in LEGACY_KNOBS and k != "period"}
+                         | {k for ov in (d.get("anchors") or {}).values() for k in (ov or {}) if k in LEGACY_KNOBS})
+        if dropped:
+            print(f"style '{d.get('name', 'style')}': ignoring legacy knob(s) {dropped} "
+                  f"(heel-to-toe now comes from the rocker model)")
         anchors = {a.name: {} for a in ANCHORS}
         for aname, ov in (d.get("anchors") or {}).items():
             if aname in anchors:

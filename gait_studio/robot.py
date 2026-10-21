@@ -60,6 +60,11 @@ class RobotModel:
         self.armature = self.actuator.armature
         self.command_ranges = {k: tuple(v) for k, v in self.cfg["command_ranges"].items()}
         self.control_dt = float(self.cfg["control_dt"])
+        # Table samples per gait cycle. Cycles have different periods, so the table is stored
+        # phase-normalised; even, so the left/right mirror is an exact half-cycle roll.
+        self.n_phase = int(self.cfg.get("n_phase", 64))
+        if self.n_phase % 2 or self.n_phase < 8:
+            raise ValueError(f"n_phase must be even and >= 8, got {self.n_phase}")
         self.stand_threshold = float(self.cfg.get("stand_threshold", 0.05))
 
         # Left/right mirror. The V2 model is a mirrored CAD, so the reflection is a pure
@@ -68,7 +73,12 @@ class RobotModel:
         self.mirror_signs = np.ones(self.num_joints)
 
         self.total_mass = float(self.m.body_subtreemass[self.base_id])
+        # Hip-pitch, knee and ankle-pitch joints per side: the rollover model measures the shank
+        # and the hip-ankle reach from their anchors.
+        self.leg_joint_ids = {s: {key: self.m.joint(self._leg_joint_name(s, key)).id
+                                  for key in ("hip_pitch", "knee", "ankle_pitch")} for s in SIDES}
         self.straight_com_height, self.straight_base_height = self._straight_heights()
+        self.leg_length, self.hip_ankle_length = self._leg_lengths()
 
     # ------------------------------------------------------------------ loading
     def _read_xml(self) -> str:
@@ -119,6 +129,26 @@ class RobotModel:
             return "l_" + name[2:]
         raise ValueError(f"Joint name without l_/r_ prefix: {name}")
 
+    def _leg_joint_name(self, side: str, key: str) -> str:
+        prefix = "l_" if side == "left" else "r_"
+        names = [n for n in self.joint_names if n.startswith(prefix) and key in n]
+        if len(names) != 1:
+            raise RuntimeError(f"expected one {prefix}*{key}* joint, found {names}")
+        return names[0]
+
+    def _leg_lengths(self) -> tuple[float, float]:
+        """(hip-pitch axis height above the sole, hip-pitch to ankle-pitch distance), straight legs.
+
+        The first is L for gait scaling (Froude number); the second is the maximum reach the
+        rollover model compares against.
+        """
+        q = self.make_qpos(np.zeros(3), np.array([1.0, 0, 0, 0]), np.zeros(self.num_joints))
+        self.forward(q)
+        ids = self.leg_joint_ids["left"]
+        hip, ankle = self.d.xanchor[ids["hip_pitch"]], self.d.xanchor[ids["ankle_pitch"]]
+        sole_z = self.d.site_xpos[self.sole_site_ids["left"]][2]
+        return float(hip[2] - sole_z), float(np.linalg.norm(hip - ankle))
+
     def _straight_heights(self) -> tuple[float, float]:
         q = self.make_qpos(np.zeros(3), np.array([1.0, 0, 0, 0]), np.zeros(self.num_joints))
         self.forward(q)
@@ -158,6 +188,7 @@ class RobotModel:
     def summary(self) -> str:
         sl = self.soles["left"]
         return (f"mass {self.total_mass:.3f} kg | straight-leg CoM height {self.straight_com_height:.3f} m"
+                f" | leg length {self.leg_length:.3f} m"
                 f" | sole {sl.front + sl.back:.3f} x {2 * sl.half_width:.3f} m,"
                 f" centre offset (x {sl.center[0]:+.4f}, y {sl.center[1]:+.4f}, z {sl.center[2]:+.4f})")
 

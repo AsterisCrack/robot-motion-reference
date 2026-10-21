@@ -76,4 +76,8 @@ grid: {vx: 9, vy: 7, wz: 13}
 # env_config.reference.stand_threshold.
 stand_threshold: 0.05
 
-control_dt: 0.02   # 50 Hz policy rate -> table frame spacing
+control_dt: 0.02   # 50 Hz policy rate
+
+# Table samples per gait cycle (even). The cycle length depends on the command (style cadence
+# knobs), so the table is phase-normalised and carries a per-command clock frequency grid.
+n_phase: 64
