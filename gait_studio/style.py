@@ -87,7 +87,7 @@ KNOBS: list[Knob] = [
     Knob("push_off", "Push-off", "Feet", 0.0, 0.0, 20.0, 0.5, "deg",
          help="Extra plantarflexion through the final double support (humans ~15-20). The ZMP must be at the toe then."),
     # --- Body
-    Knob("com_height", "CoM height", "Body", 0.195, 0.150, 0.208, 0.001, "m",
+    Knob("com_height", "CoM height", "Body", 0.195, 0.150, 0.220, 0.001, "m",
          help="Lower = more knee bend."),
     Knob("com_forward", "CoM forward offset", "Body", 0.0, -0.020, 0.020, 0.001, "m",
          help="Shifts the CoM ahead of the feet."),

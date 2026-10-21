@@ -65,12 +65,12 @@ sole:
 # grid stretches a bit past that and the bake report flags the cells that exceed the servo.
 # Keep the training command ranges equal to this (config/config_gait_reference.yaml does).
 command_ranges:
-  vx: [-0.2, 0.2]
-  vy: [-0.15, 0.15]
-  wz: [-1.2, 1.2]
+  vx: [-0.3, 0.3]
+  vy: [-0.2, 0.2]
+  wz: [-1.5, 1.5]
 
 # Bake grid resolution (points per axis, ends included).
-grid: {vx: 9, vy: 7, wz: 13}
+grid: {vx: 16, vy: 12, wz: 16}
 
 # |v_xy| and |wz| below this -> standing pose, clock holds. Same as the training config's
 # env_config.reference.stand_threshold.
