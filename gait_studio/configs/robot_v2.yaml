@@ -65,12 +65,19 @@ sole:
 # grid stretches a bit past that and the bake report flags the cells that exceed the servo.
 # Keep the training command ranges equal to this (config/config_gait_reference.yaml does).
 command_ranges:
-  vx: [-0.3, 0.3]
-  vy: [-0.2, 0.2]
-  wz: [-1.5, 1.5]
+  vx: [-0.2, 0.2]
+  vy: [-0.15, 0.15]
+  wz: [-1.2, 1.2]
+
+# Shape of the (vx, vy) command limit inside those ranges: "ellipse_xy" or "box". Gait Studio's OWN setting,
+# mirroring the training config's commands.base_velocity.limit_shape: training checks the table's
+# metadata against its config (warns on a mismatch) and never reads the limit from here. With
+# ellipse_xy, grid cells outside (vx/vx_max)^2 + (vy/vy_max)^2 <= 1 are baked at their projected command
+# (scaled along their direction), so the blend near the boundary is feasible and no corner gait is made.
+command_limit_shape: ellipse_xy
 
 # Bake grid resolution (points per axis, ends included).
-grid: {vx: 16, vy: 12, wz: 16}
+grid: {vx: 10, vy: 8, wz: 13}
 
 # |v_xy| and |wz| below this -> standing pose, clock holds. Same as the training config's
 # env_config.reference.stand_threshold.

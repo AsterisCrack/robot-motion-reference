@@ -130,7 +130,8 @@ class Studio:
         self.style_path = style_path or os.path.join(STYLE_DIR, "default.yaml")
         self.style = Style.load(self.style_path) if os.path.exists(self.style_path) else Style()
         self.ranges = self.robot.command_ranges
-        self.cmd = np.zeros(3)
+        self.cmd = np.zeros(3)          # what the sliders say
+        self.eff_cmd = np.zeros(3)      # what is generated: self.cmd through the command limit
 
         self.lock = threading.Lock()
         self.dirty = threading.Event()
@@ -232,6 +233,9 @@ class Studio:
                 sl = gui.add_slider(f"{label} [{unit}]", lo, hi, 0.01, 0.0)
                 sl.on_update(self._make_cmd_cb(i))
                 self.sl_cmd.append(sl)
+            shape = self.robot.command_limit_shape
+            self.eff_md = gui.add_markdown(
+                self._eff_text() if shape != "box" else "", visible=shape != "box")
             presets = gui.add_button_group("Preset", list(PRESETS))
             presets.on_click(lambda e: self._set_preset(e.target.value))
             self.gui_tour = gui.add_checkbox("Auto tour (cycle presets)", False)
@@ -341,11 +345,26 @@ class Studio:
                                             "and writes the table, a style copy and a feasibility report.")
 
     # ------------------------------------------------------------------ callbacks
+    def _eff_text(self) -> str:
+        """The drive command after the command limit, next to the sliders."""
+        e = self.eff_cmd
+        hit = not np.allclose(e, self.cmd, atol=1e-9)
+        return (f"Effective command ({self.robot.command_limit_shape}): "
+                f"**({e[0]:+.3f}, {e[1]:+.3f}, {e[2]:+.3f})**" + ("  ← limited" if hit else ""))
+
+    def _limit_drive(self):
+        """Apply the command limit (the shape mirrored from the training config) to the sliders' command."""
+        self.eff_cmd = np.asarray(self.robot.limit_command(self.cmd), dtype=np.float64)
+        if self.robot.command_limit_shape != "box":
+            self.eff_md.content = self._eff_text()
+        return self.eff_cmd.copy()
+
     def _make_cmd_cb(self, i):
         def cb(_):
             if self._syncing:
                 return
             self.cmd[i] = self.sl_cmd[i].value
+            self._limit_drive()
             self.dirty.set()
         return cb
 
@@ -355,6 +374,7 @@ class Studio:
             self.sl_cmd[i].value = float(v)
             self.cmd[i] = float(v)
         self._syncing = False
+        self._limit_drive()
         self.dirty.set()
 
     def _set_preset(self, name):
@@ -547,7 +567,8 @@ class Studio:
             st = res["status"]
             self.bake_md.content = (f"Wrote `{out}`\n\n{ICON[OK]} {int((st == 0).sum())} "
                                     f"{ICON[WARN]} {int((st == 1).sum())} {ICON[FAIL]} {int((st == 2).sum())} "
-                                    f"of {st.size} commands, period {1.0 / res['freq'].max():.2f}-"
+                                    f"of {st.size} commands ({int(res['projected'].sum())} baked at a projected "
+                                    f"command, limit {res['limit_shape']}), period {1.0 / res['freq'].max():.2f}-"
                                     f"{1.0 / res['freq'].min():.2f} s\n\n"
                                     f"```\n{res['report']}\n```")
         except Exception:  # noqa: BLE001
@@ -564,7 +585,7 @@ class Studio:
                 t = time.time()
                 with self.lock:
                     style = self.style.copy()
-                cmd = self.cmd.copy()
+                cmd = self._limit_drive()
                 thr = self.robot.stand_threshold
                 stopped = np.hypot(cmd[0], cmd[1]) < thr and abs(cmd[2]) < thr
                 if stopped and not self.gui_step_still.value:
@@ -614,15 +635,16 @@ class Studio:
                 rows.append(f"| {c.name} | {c.value:.2f} {c.unit} {('· ' + c.detail) if c.detail else ''} | {ICON[c.status]} |")
             self.check_md.content = "\n".join(rows)
             return
-        step = math.hypot(self.cmd[0], self.cmd[1]) * cyc.period / 2
-        froude = (self.cmd[0] ** 2 + self.cmd[1] ** 2) / (9.81 * self.robot.leg_length)
+        cmd = self.eff_cmd   # the limited command is what the gait was generated for
+        step = math.hypot(cmd[0], cmd[1]) * cyc.period / 2
+        froude = (cmd[0] ** 2 + cmd[1] ** 2) / (9.81 * self.robot.leg_length)
         heel = ""
         if cyc.pitch_profiles:
             _, p = cyc.pitch_profiles["right"]
             heel = f" · land {-math.degrees(p[0]):+.0f}° / leave {math.degrees(p[-1]):+.0f}° (toes up / heel up)"
         self.status_md.content = (
-            f"{ICON[rep.status]} **{rep.status.upper()}** · cmd ({self.cmd[0]:+.2f}, {self.cmd[1]:+.2f}, "
-            f"{self.cmd[2]:+.2f}) · cycle {cyc.period:.2f} s ({120.0 / cyc.period:.0f} steps/min) · step "
+            f"{ICON[rep.status]} **{rep.status.upper()}** · cmd ({cmd[0]:+.2f}, {cmd[1]:+.2f}, "
+            f"{cmd[2]:+.2f}) · cycle {cyc.period:.2f} s ({120.0 / cyc.period:.0f} steps/min) · step "
             f"{step * 100:.1f} cm · Fr {froude:.3f} · width {st['stance_width'] * 100:.1f} cm{heel} · "
             f"{self.gen_ms:.0f} ms")
         rows = ["| check | value | |", "|---|---|---|"]

@@ -93,7 +93,7 @@ def test_baked_table_is_symmetric(tmp_path):
     robot = RobotModel()
     data = t["data"]
     n = data.shape[3]
-    assert int(t["version"]) == 2 and n == robot.n_phase == int(t["n_frames"])
+    assert int(t["version"]) == 3 and n == robot.n_phase == int(t["n_frames"])
     partner = np.roll(data[:, ::-1, ::-1], -n // 2, axis=3)
     assert np.abs(mirror_rows(partner, robot) - data).max() < 1e-5
     freq = t["freq"]

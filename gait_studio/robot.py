@@ -10,6 +10,7 @@ import numpy as np
 import yaml
 
 from .actuator import BamActuator
+from .command_limit import limit_command, validate_shape
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_ROBOT_CONFIG = os.path.join(_HERE, "configs", "robot_v2.yaml")
@@ -59,6 +60,10 @@ class RobotModel:
         self.actuator = BamActuator.from_config(self.cfg["actuator"], cfg_dir)
         self.armature = self.actuator.armature
         self.command_ranges = {k: tuple(v) for k, v in self.cfg["command_ranges"].items()}
+        # Mirrors the training config's limit_shape (see configs/robot_v2.yaml); "box" if absent.
+        self.command_limit_shape = validate_shape(self.cfg.get("command_limit_shape"))
+        self.limit_ranges = {"lin_vel_x": self.command_ranges["vx"], "lin_vel_y": self.command_ranges["vy"],
+                             "ang_vel_z": self.command_ranges["wz"]}
         self.control_dt = float(self.cfg["control_dt"])
         # Table samples per gait cycle. Cycles have different periods, so the table is stored
         # phase-normalised; even, so the left/right mirror is an exact half-cycle roll.
@@ -81,6 +86,10 @@ class RobotModel:
         self.leg_length, self.hip_ankle_length = self._leg_lengths()
 
     # ------------------------------------------------------------------ loading
+    def limit_command(self, cmd, shape: str | None = None) -> np.ndarray:
+        """cmd (..., 3) projected into this robot's command limit (command_ranges + command_limit_shape)."""
+        return limit_command(cmd, self.limit_ranges, self.command_limit_shape if shape is None else shape)
+
     def _read_xml(self) -> str:
         with open(self.mjcf_path, "r", encoding="utf-8") as f:
             xml = f.read()
