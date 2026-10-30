@@ -2,8 +2,8 @@
 # Paths are relative to this file.
 
 mjcf: ../../../envs/assets/robotV2/robot_v2.xml
-# The MJCF carries absolute Windows mesh paths; every mesh file is re-pointed here.
-mesh_dir: ../../../envs/assets/robotV2/Robot_description/meshes
+# Every mesh file in the MJCF is re-pointed here (the meshes live in the BipedRobotHardware submodule).
+mesh_dir: ../../../robot_hardware/robot_description/meshes
 
 base_body: base_link
 foot_bodies: {left: l_foot_link_1, right: r_foot_link_1}
